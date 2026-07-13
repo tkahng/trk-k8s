@@ -1,0 +1,3 @@
+name: trk-k8s-aws
+runtime: go
+description: Machine provisioning on AWS EC2 for the kubeadm learning cluster (1 control plane + 2 workers)

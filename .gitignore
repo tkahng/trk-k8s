@@ -1,0 +1,10 @@
+# Go build artifacts (binaries named after their directory)
+infra/aws/aws
+infra/hetzner/hetzner
+
+# Pulumi local plugin/log noise
+.pulumi/
+
+# Never commit credentials
+*.env
+kubeconfig*
