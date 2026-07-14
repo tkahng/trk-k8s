@@ -27,6 +27,24 @@ run() { # run <user> <host> <cmd...>
   ssh "${SSH_OPTS[@]}" "${user}@${host}" "$@"
 }
 
+echo "### Step 0: wait for SSH on all nodes (fresh instances need ~30-60s)"
+pids=()
+while IFS=$'\t' read -r name public user; do
+  (
+    for _ in $(seq 1 30); do
+      if run "$user" "$public" "true" 2>/dev/null; then
+        echo "  ssh ready: $name"
+        exit 0
+      fi
+      sleep 5
+    done
+    echo "  ssh TIMEOUT after 150s: $name" >&2
+    exit 1
+  ) &
+  pids+=($!)
+done < <(jq -r '.[] | [.name, .publicIp, .sshUser] | @tsv' "$INV")
+for p in "${pids[@]}"; do wait "$p"; done
+
 echo "### Step 1: prep all nodes (parallel)"
 pids=()
 while IFS=$'\t' read -r name public user; do
