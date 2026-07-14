@@ -77,13 +77,18 @@ kube-proxy replacement.
 ### Phase 4 — Environment addons (the portable way)
 - Portable core first: ingress via NodePort, storage via local-path — works on
   any provider including on-prem.
-- Then AWS-specific as *optional* addons, clearly marked: AWS CCM
-  (`type=LoadBalancer` → NLB), EBS CSI driver.
+- EBS CSI driver (needs no CCM — reads instance metadata directly).
+- AWS CCM as a *rebuild lab*, not an install: core bootstrap deliberately uses
+  no cloud provider (ADR 003 — the `--cloud-provider=external` taint handshake
+  must be chosen at bootstrap and isn't portable). Lab: re-bootstrap with the
+  flag + AWS CCM, watch `type=LoadBalancer` provision an NLB, tear down.
 - On-prem equivalents documented alongside: MetalLB, Longhorn.
 
 ### Phase 5 — Making it useful
 ingress-nginx, cert-manager + Let's Encrypt, metrics-server, a sample app end
-to end.
+to end. Manifest hygiene: Helm for third-party, Kustomize for our own app.
+Then GitOps: ArgoCD reconciling cluster addons + apps from this repo (see
+docs/notes/ecosystem-tools.md for the tool landscape).
 
 ### Phase 6 — Automate and drill
 - Encode the Phase 2 runbook into scripts driven by the inventory contract
