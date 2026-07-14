@@ -1,19 +1,27 @@
-# nip.io: hello.<ip>.nip.io resolves to <ip> — free wildcard DNS for dev.
-# The IP is the control plane's PUBLIC IP; changes on every rebuild, so this
-# patch is where the env-specific host lives (that's what overlays are for).
+# Env-specific host + TLS live in the overlay (base stays portable).
+# *.k8s.kahng.dev is a wildcard A record in Cloudflare (proxy off) pointing
+# at the control plane's public IP — changes on rebuild, update it there.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: hello
+  annotations:
+    # cert-manager watches Ingresses with this annotation and materializes
+    # a Certificate for the tls block below automatically.
+    cert-manager.io/cluster-issuer: letsencrypt-prod
 spec:
+  tls:
+    - hosts:
+        - hello.k8s.kahng.dev
+      secretName: hello-tls
   rules:
-  - host: hello.100.58.161.113.nip.io
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: hello
-            port:
-              number: 80
+    - host: hello.k8s.kahng.dev
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: hello
+                port:
+                  number: 80
