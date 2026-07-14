@@ -1,0 +1,22 @@
+# ArgoCD Application: the hello app deploys itself from git.
+# From here on, `kubectl apply -k apps/hello/...` from the laptop is the
+# wrong way to change this app — edit manifests, push, ArgoCD reconciles.
+# selfHeal reverts manual drift; prune deletes resources removed from git.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: hello
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: git@github.com:tkahng/trk-k8s.git
+    targetRevision: main
+    path: apps/hello/overlays/dev
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

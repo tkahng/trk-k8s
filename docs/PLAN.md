@@ -95,11 +95,13 @@ Later lab: kube-proxy replacement.
   provision an NLB, tear down.
 - On-prem equivalents documented alongside: MetalLB, Longhorn.
 
-### Phase 5 — Making it useful
-ingress-nginx, cert-manager + Let's Encrypt, metrics-server, a sample app end
-to end. Manifest hygiene: Helm for third-party, Kustomize for our own app.
-Then GitOps: ArgoCD reconciling cluster addons + apps from this repo (see
-docs/notes/ecosystem-tools.md for the tool landscape).
+### Phase 5 — Making it useful ✅ 2026-07-14
+All landed (`docs/runbooks/05-platform.md`): metrics-server, ingress-nginx on
+fixed NodePorts, cert-manager + Let's Encrypt via DNS-01 on Cloudflare
+(kahng.dev; `https://hello.k8s.kahng.dev:30443` with a real cert, firewall
+never opened), hello app as Kustomize base+overlay, and ArgoCD syncing it
+from the private repo via a read-only deploy key (Synced/Healthy).
+Follow-ups: move more addons under ArgoCD; consider app-of-apps pattern.
 
 ### Phase 6 — Automate and drill
 - Encode the Phase 2 runbook into scripts driven by the inventory contract
