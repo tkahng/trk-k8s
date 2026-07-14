@@ -77,9 +77,12 @@ the intended end state.
 Learning targets hit: what kubeadm actually does (certs, static pods, etcd),
 why nodes are NotReady without a CNI, the join token/CA-hash trust model.
 
-### Phase 3 — Cilium
-Helm install, `cilium status`, connectivity test, Hubble. Later lab:
-kube-proxy replacement.
+### Phase 3 — Cilium ✅ 2026-07-14
+Cilium 1.19.4 via Helm (`docs/runbooks/03-cilium.md`, values in
+`cluster/addons/cilium/values.yaml` — pod CIDR pinned to 10.244.0.0/16).
+All nodes Ready, connectivity test 79/80 (only miss: a log-hygiene check
+tripped by a disconnected Hubble UI session). Hubble relay + UI running.
+Later lab: kube-proxy replacement.
 
 ### Phase 4 — Environment addons (the portable way)
 - Portable core first: ingress via NodePort, storage via local-path — works on

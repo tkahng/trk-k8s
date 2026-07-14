@@ -1,0 +1,26 @@
+# Cilium values — see docs/runbooks/03-cilium.md
+#
+# The one setting that is NOT optional: pod CIDR. Cilium's cluster-pool
+# default (10.0.0.0/8) contains our node network (10.0.0.0/16 on AWS and
+# Hetzner alike) — pods would collide with machines. Use the range kubeadm
+# was init'ed with (--pod-network-cidr=10.244.0.0/16).
+ipam:
+  mode: cluster-pool
+  operator:
+    clusterPoolIPv4PodCIDRList:
+      - 10.244.0.0/16
+
+# One replica is enough for a 3-node learning cluster (default is 2).
+operator:
+  replicas: 1
+
+# Hubble: the observability layer — flow visibility (relay) + web UI.
+hubble:
+  relay:
+    enabled: true
+  ui:
+    enabled: true
+
+# Deliberately NOT set: kubeProxyReplacement (kube-proxy stays for now;
+# replacing it is a planned later lab), routing mode (default vxlan tunnel
+# works on any provider — portable choice).

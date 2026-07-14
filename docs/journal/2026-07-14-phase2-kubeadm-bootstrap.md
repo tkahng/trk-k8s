@@ -42,9 +42,25 @@ Verified from the laptop over the public IP, proving the
 - `kube-proxy` runs per node as a DaemonSet even before CNI.
 - Cluster state: `kubectl get nodes` NotReady × 3 = Phase 2 success.
 
-## Next (Phase 3)
+## Phase 3, same day: Cilium
 
-Cilium via Helm from the laptop — remember the pod CIDR handoff:
-`clusterPoolIPv4PodCIDRList=10.244.0.0/16` (Cilium's 10.0.0.0/8 default
-would collide with the VPC). Nodes go Ready, CoreDNS schedules, connectivity
-test, Hubble.
+Installed Cilium 1.19.4 via Helm entirely from the laptop — zero SSH. The
+CNI is just workloads on the cluster; first real taste of "the cluster is
+the API".
+
+- The one critical value: `clusterPoolIPv4PodCIDRList: [10.244.0.0/16]`.
+  Cilium's default pool (10.0.0.0/8) contains the VPC — pods would have
+  collided with machines. Matched kubeadm's `--pod-network-cidr` instead.
+- Watched the causal chain live: helm install → cilium agents Running →
+  nodes flip NotReady→Ready → CoreDNS finally schedules and gets a
+  10.244.x.x pod IP (it waited 24 minutes for a network to exist).
+- `cilium connectivity test`: **79/80 tests, 692 actions** — the one
+  "failure" was the log-hygiene meta-check flagging two `context canceled`
+  errors in the hubble-ui backend from a disconnected browser session.
+  Every actual traffic path (cross-node, services, DNS, L7, policy
+  allow/deny) passed. On 2-vCPU nodes the suite takes ~15 min.
+- Lesson (mine): don't pipe long-running commands through `tail` — the
+  output stays invisible until exit. Stream to a log file instead.
+
+Cluster is now fully functional. Kept kube-proxy (replacement is a later
+lab); vxlan tunnel routing (portable default).
