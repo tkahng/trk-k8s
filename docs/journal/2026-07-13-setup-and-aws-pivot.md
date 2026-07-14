@@ -37,9 +37,52 @@
   €5.49/mo), but new-account credits (~$200/6mo) plus hourly billing and a
   teardown habit make it effectively free for this project.
 
-## Next session
+## New-account hardening (done this session)
 
-- Set up personal-account AWS profile (credentials stay out of chat)
-- Create S3 state bucket, `pulumi login`, `pulumi stack init`, set config
-  (`myIp`, `sshPublicKey`), first `pulumi up`
-- SSH into all three nodes → start the Phase 2 kubeadm runbook
+Identity: IAM Identity Center (no long-lived keys) — `tkahng-poweruser` with
+PowerUserAccess, local profile `personal` via `aws configure sso`. Lessons:
+Identity Center users sign in at the access portal URL (`*.awsapps.com/start`),
+NOT the normal AWS sign-in page — the wrong door gives a misleading
+"authentication failed". PowerUserAccess cannot call `iam:*`/`account:*` APIs
+(root MFA and alternate contacts must be checked in the console as root).
+
+Account defaults audit → applied:
+- ✅ already existed: "My Zero-Spend Budget" ($1, from signup wizard) — fires
+  when real cash is owed (net of credits); CloudTrail 90-day event history
+  (default, free — no persistent trail on purpose)
+- 🔧 applied: account-wide S3 Block Public Access (all four flags); default
+  EBS encryption in us-east-1
+- ⏳ deferred: cost-allocation tag activation for `cluster` (only possible
+  ~24h after tagged resources exist); optional gross-usage budget to watch
+  credit burn
+- Pulumi state: versioned S3 bucket `tkahng-pulumi-state`, backend
+  `s3://tkahng-pulumi-state?region=us-east-1&profile=personal`
+
+## First `pulumi up` — the cluster machines exist
+
+Stack `dev` (project `trk-k8s-aws`), config: `aws:region`, `aws:profile`,
+`myIp` (admin CIDR), `sshPublicKey` (new dedicated key `~/.ssh/aws_k8s`).
+Secrets passphrase lives in `~/.config/pulumi/trk-k8s.passphrase` (chmod 600,
+random, never displayed — commands use `PULUMI_CONFIG_PASSPHRASE_FILE`).
+
+First `up`: 10 of 11 resources created, then **`PendingVerification`** on the
+third instance — brand-new AWS accounts get their first launches in a region
+manually validated (minutes to 4h). Lesson in how Pulumi handles partial
+failure: state recorded the 10 successes, the retry created only the missing
+instance. Second `up` a minute later: clean.
+
+Verified: SSH to all 3 nodes as `ubuntu` with the new key; x86_64, 3.8 GiB RAM
+each; private IPs 10.0.1.10-12 as planned; cp-1 can ping both workers over the
+private network (the SG self-rule works).
+
+Also learned: `aws configure sso` can't run through Claude Code's `!` prefix
+(no TTY) — interactive AWS CLI wizards need a real terminal.
+
+## Next session (Phase 2)
+
+- Write and follow the kubeadm runbook: containerd + kubelet on all nodes,
+  `kubeadm init` on cp-1 (advertise 10.0.1.10), join workers, kubeconfig to
+  laptop
+- Remember: `pulumi destroy` when not actively using the cluster
+  (~$0.11/hr compute + ~$0.007/hr EBS while it exists)
+- In ~24h: activate the `cluster` cost-allocation tag in billing

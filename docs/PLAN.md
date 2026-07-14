@@ -43,16 +43,20 @@ account has ~$200 of credits, so with `pulumi destroy` between sessions
 
 ### Phase 0 — Prerequisites ✅ (mostly done)
 - [x] Tooling: pulumi, Go, kubectl, hcloud CLI
-- [x] Dedicated SSH keypair: `~/.ssh/hetzner_k8s` (works for any provider)
+- [x] Dedicated SSH keypairs, one per provider: `~/.ssh/aws_k8s`, `~/.ssh/hetzner_k8s`
 - [x] Hetzner project "k8s" + API token (parked)
-- [ ] AWS credentials for personal account 785464635442 as a local profile
-- [ ] S3 state bucket + `pulumi login`
+- [x] AWS: IAM Identity Center user (PowerUserAccess) → local profile `personal`
+- [x] Account hardening: S3 Block Public Access, default EBS encryption, budget
+- [x] S3 state bucket `tkahng-pulumi-state` + `pulumi login` (passphrase file:
+      `~/.config/pulumi/trk-k8s.passphrase` — back it up; without it stack
+      secrets are unrecoverable)
 
 ### Phase 1 — Infrastructure with Pulumi (Go)
 - [x] `infra/hetzner/`: network, firewall, placement group, 3× CX23 (parked)
 - [x] `infra/aws/`: VPC, public subnet, IGW, security group (SSH/6443 from our
       IP + node-to-node self rule), 3× t3a.medium with fixed private IPs
-- [ ] `pulumi up` on AWS; verify SSH to all three nodes
+- [x] `pulumi up` on AWS (stack `dev`); SSH verified to all 3 nodes, private
+      network verified between nodes
 
 Learning targets: Pulumi program structure, stacks, config/secrets, outputs —
 plus the differences a provider makes (Hetzner firewalls filter only the public
