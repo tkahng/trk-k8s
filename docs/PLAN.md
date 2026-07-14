@@ -67,13 +67,15 @@ Learning targets: Pulumi program structure, stacks, config/secrets, outputs —
 plus the differences a provider makes (Hetzner firewalls filter only the public
 interface; AWS security groups filter everything).
 
-### Phase 2 — kubeadm bootstrap (manual, following a runbook)
-On every node: kernel modules + sysctls, containerd (SystemdCgroup), kubeadm/
-kubelet/kubectl from pkgs.k8s.io. On the control plane: `kubeadm init`
-advertising the **private** IP. Workers: `kubeadm join`. Kubeconfig to laptop.
+### Phase 2 — kubeadm bootstrap (manual, following a runbook) ✅ 2026-07-14
+Executed by hand per `docs/runbooks/02-kubeadm-bootstrap.md`: node prep on all
+three, `kubeadm init` on cp-1 (private IP advertise, public-IP cert SAN, pod
+CIDR 10.244.0.0/16), workers joined, kubeconfig on the laptop
+(`make kubeconfig`). Cluster at v1.35.6, all nodes NotReady awaiting CNI —
+the intended end state.
 
-Learning targets: what kubeadm actually does (certs, static pods, etcd), why
-nodes are NotReady without a CNI, the join token/CA-hash trust model.
+Learning targets hit: what kubeadm actually does (certs, static pods, etcd),
+why nodes are NotReady without a CNI, the join token/CA-hash trust model.
 
 ### Phase 3 — Cilium
 Helm install, `cilium status`, connectivity test, Hubble. Later lab:

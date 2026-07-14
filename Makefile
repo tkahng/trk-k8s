@@ -10,7 +10,7 @@ PULUMI         := PULUMI_CONFIG_PASSPHRASE_FILE=$(HOME)/.config/pulumi/trk-k8s.p
 # node name → public IP, straight from the inventory contract
 node_ip = $(shell cd $(INFRA_DIR) && $(PULUMI) stack output nodes | jq -r '.[] | select(.name=="$(1)").publicIp')
 
-.PHONY: help login preview up destroy nodes outputs set-myip ssh-cp ssh-worker-1 ssh-worker-2
+.PHONY: help login preview up destroy nodes outputs set-myip ssh-cp ssh-worker-1 ssh-worker-2 kubeconfig
 
 help: ## list available targets
 	@grep -E '^[a-z0-9-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -36,6 +36,11 @@ outputs: ## print all stack outputs
 set-myip: ## update the admin IP in stack config (run after your IP changes)
 	cd $(INFRA_DIR) && $(PULUMI) config set myIp "$$(curl -s https://checkip.amazonaws.com)/32"
 	@echo "now run: make up"
+
+kubeconfig: ## fetch admin kubeconfig from the control plane to ./kubeconfig (gitignored)
+	scp -q -i $(SSH_KEY) ubuntu@$(call node_ip,k8s-cp-1):.kube/config ./kubeconfig
+	sed -i '' "s|https://10.0.1.10:6443|https://$(call node_ip,k8s-cp-1):6443|" ./kubeconfig
+	@echo "use with: export KUBECONFIG=$$(pwd)/kubeconfig"
 
 ssh-cp: ## ssh into the control plane
 	ssh -i $(SSH_KEY) ubuntu@$(call node_ip,k8s-cp-1)
