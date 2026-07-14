@@ -1,0 +1,19 @@
+# nip.io: hello.<ip>.nip.io resolves to <ip> — free wildcard DNS for dev.
+# The IP is the control plane's PUBLIC IP; changes on every rebuild, so this
+# patch is where the env-specific host lives (that's what overlays are for).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hello
+spec:
+  rules:
+  - host: hello.100.58.161.113.nip.io
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: hello
+            port:
+              number: 80

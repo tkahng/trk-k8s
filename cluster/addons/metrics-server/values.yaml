@@ -1,0 +1,8 @@
+# metrics-server — feeds `kubectl top` and (later) HorizontalPodAutoscalers.
+#
+# kubeadm kubelets serve self-signed certs (no cluster-CA-signed serving
+# certs by default), so metrics-server can't verify them. The proper fix is
+# kubelet serving-cert rotation + CSR approval; the pragmatic learning-
+# cluster fix is to skip verification. Revisit if this cluster ever matters.
+args:
+  - --kubelet-insecure-tls
