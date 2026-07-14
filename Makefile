@@ -12,7 +12,7 @@ PULUMI         := PULUMI_CONFIG_PASSPHRASE_FILE=$(HOME)/.config/pulumi/trk-k8s.p
 # node name → public IP, straight from the inventory contract
 node_ip = $(shell cd $(INFRA_DIR) && $(PULUMI) stack output nodes | jq -r '.[] | select(.name=="$(1)").publicIp')
 
-.PHONY: help login preview up destroy nodes outputs set-myip ssh-cp ssh-worker-1 ssh-worker-2 kubeconfig
+.PHONY: help login preview up destroy nodes outputs set-myip ssh-cp ssh-worker-1 ssh-worker-2 kubeconfig bootstrap platform rebuild
 
 help: ## list available targets
 	@grep -E '^[a-z0-9-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -38,6 +38,19 @@ outputs: ## print all stack outputs
 set-myip: ## update the admin IP in stack config (run after your IP changes)
 	cd $(INFRA_DIR) && $(PULUMI) config set myIp "$$(curl -s https://checkip.amazonaws.com)/32"
 	@echo "now run: make up"
+
+bootstrap: ## kubeadm + cilium on the provisioned machines (runbooks 02+03, scripted)
+	@cd $(INFRA_DIR) && $(PULUMI) stack output nodes > /tmp/trk-inventory.json
+	cluster/bootstrap.sh /tmp/trk-inventory.json $(SSH_KEY)
+
+platform: ## storage/ingress/tls/gitops addons (runbooks 04+05, scripted)
+	cluster/platform.sh
+
+rebuild: ## the full drill: destroy -> up -> bootstrap -> platform
+	$(MAKE) destroy
+	$(MAKE) up
+	$(MAKE) bootstrap
+	$(MAKE) platform
 
 kubeconfig: ## fetch admin kubeconfig from the control plane to ./kubeconfig (gitignored)
 	scp -q -i $(SSH_KEY) ubuntu@$(call node_ip,k8s-cp-1):.kube/config ./kubeconfig
