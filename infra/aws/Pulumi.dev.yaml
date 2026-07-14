@@ -1,6 +1,6 @@
 encryptionsalt: v1:n8BLiO6Lu+c=:v1:fGsojPRpbE+ZU7rx:LC7Y19Cv+JcCzaOnJaXZ0voRutzbtA==
 config:
   aws:region: us-east-1
-  aws:profile: personal
+  aws:profile: personal-admin
   trk-k8s-aws:myIp: 181.215.169.115/32
   trk-k8s-aws:sshPublicKey: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOHbJKFqC7os69O5rafq79QczuTq7suuyOA++PUbomEQ tkahng-k8s-aws

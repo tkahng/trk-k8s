@@ -84,14 +84,15 @@ All nodes Ready, connectivity test 79/80 (only miss: a log-hygiene check
 tripped by a disconnected Hubble UI session). Hubble relay + UI running.
 Later lab: kube-proxy replacement.
 
-### Phase 4 — Environment addons (the portable way)
-- Portable core first: ingress via NodePort, storage via local-path — works on
-  any provider including on-prem.
-- EBS CSI driver (needs no CCM — reads instance metadata directly).
-- AWS CCM as a *rebuild lab*, not an install: core bootstrap deliberately uses
-  no cloud provider (ADR 003 — the `--cloud-provider=external` taint handshake
-  must be chosen at bootstrap and isn't portable). Lab: re-bootstrap with the
-  flag + AWS CCM, watch `type=LoadBalancer` provision an NLB, tear down.
+### Phase 4 — Environment addons (the portable way) — storage ✅ 2026-07-14
+- [x] local-path-provisioner as default StorageClass (portable); node-pin
+      trade-off demonstrated (`docs/runbooks/04-storage.md`)
+- [x] EBS CSI driver as opt-in `ebs-sc` class: node IAM role via Pulumi,
+      IMDS hop-limit-3 lesson (debugged with Hubble), cross-node volume
+      move demonstrated
+- AWS CCM remains a *rebuild lab*, not an install (ADR 003): re-bootstrap
+  with `--cloud-provider=external` + AWS CCM, watch `type=LoadBalancer`
+  provision an NLB, tear down.
 - On-prem equivalents documented alongside: MetalLB, Longhorn.
 
 ### Phase 5 — Making it useful

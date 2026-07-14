@@ -1,0 +1,11 @@
+# AWS-ONLY addon (ADR 002: optional per-environment; local-path stays the
+# default StorageClass — cloud storage is opt-in via storageClassName).
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: ebs-sc
+provisioner: ebs.csi.aws.com
+volumeBindingMode: WaitForFirstConsumer   # bind where the pod schedules (AZ-aware)
+parameters:
+  type: gp3
+# reclaimPolicy defaults to Delete: PVC deletion deletes the EBS volume.

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/pulumi/pulumi-aws/sdk/v7/go/aws/ec2"
+	"github.com/pulumi/pulumi-aws/sdk/v7/go/aws/iam"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/config"
 )
@@ -101,6 +102,20 @@ func main() {
 					CidrBlocks:  pulumi.StringArray{pulumi.String(myIP)},
 				},
 				&ec2.SecurityGroupIngressArgs{
+					Description: pulumi.String("ingress-nginx HTTP NodePort from admin"),
+					Protocol:    pulumi.String("tcp"),
+					FromPort:    pulumi.Int(30080),
+					ToPort:      pulumi.Int(30080),
+					CidrBlocks:  pulumi.StringArray{pulumi.String(myIP)},
+				},
+				&ec2.SecurityGroupIngressArgs{
+					Description: pulumi.String("ingress-nginx HTTPS NodePort from admin"),
+					Protocol:    pulumi.String("tcp"),
+					FromPort:    pulumi.Int(30443),
+					ToPort:      pulumi.Int(30443),
+					CidrBlocks:  pulumi.StringArray{pulumi.String(myIP)},
+				},
+				&ec2.SecurityGroupIngressArgs{
 					Description: pulumi.String("all node-to-node traffic"),
 					Protocol:    pulumi.String("-1"),
 					FromPort:    pulumi.Int(0),
@@ -117,6 +132,41 @@ func main() {
 				},
 			},
 			Tags: pulumi.StringMap{"Name": pulumi.String("k8s-sg")},
+		})
+		if err != nil {
+			return err
+		}
+
+		// Node IAM role: lets in-cluster AWS addons (EBS CSI driver) call the
+		// EC2 API using the instance's own identity — no credential secrets
+		// in the cluster. AWS-only concern; the cluster works without it
+		// (ADR 002/003 — local-path storage needs none of this).
+		nodeRole, err := iam.NewRole(ctx, "k8s-node", &iam.RoleArgs{
+			Name: pulumi.String("k8s-node"),
+			AssumeRolePolicy: pulumi.String(`{
+				"Version": "2012-10-17",
+				"Statement": [{
+					"Effect": "Allow",
+					"Principal": {"Service": "ec2.amazonaws.com"},
+					"Action": "sts:AssumeRole"
+				}]
+			}`),
+		})
+		if err != nil {
+			return err
+		}
+
+		_, err = iam.NewRolePolicyAttachment(ctx, "k8s-node-ebs-csi", &iam.RolePolicyAttachmentArgs{
+			Role:      nodeRole.Name,
+			PolicyArn: pulumi.String("arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"),
+		})
+		if err != nil {
+			return err
+		}
+
+		nodeProfile, err := iam.NewInstanceProfile(ctx, "k8s-node", &iam.InstanceProfileArgs{
+			Name: pulumi.String("k8s-node"),
+			Role: nodeRole.Name,
 		})
 		if err != nil {
 			return err
@@ -162,6 +212,17 @@ func main() {
 				PrivateIp:           pulumi.String(n.privateIP),
 				VpcSecurityGroupIds: pulumi.StringArray{sg.ID()},
 				KeyName:             keyPair.KeyName,
+				IamInstanceProfile:  nodeProfile.Name,
+				// Pods must reach the instance metadata service (the EBS CSI
+				// driver reads credentials and instance/AZ info there), and
+				// each forwarding step burns one hop of the response TTL:
+				// with Cilium's overlay it's node stack + pod veth, so 2 is
+				// one too few — Hubble showed "TTL exceeded DROPPED" until
+				// this was 3. Requiring IMDSv2 is current security baseline.
+				MetadataOptions: &ec2.InstanceMetadataOptionsArgs{
+					HttpTokens:              pulumi.String("required"),
+					HttpPutResponseHopLimit: pulumi.Int(3),
+				},
 				RootBlockDevice: &ec2.InstanceRootBlockDeviceArgs{
 					VolumeSize: pulumi.Int(20), // room for container images
 					VolumeType: pulumi.String("gp3"),

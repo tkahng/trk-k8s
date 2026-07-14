@@ -4,7 +4,9 @@
 
 INFRA_DIR      := infra/aws
 SSH_KEY        := ~/.ssh/aws_k8s
-AWS_PROFILE    := personal
+# personal-admin since 2026-07-14: nodes carry an IAM instance profile, so
+# pulumi needs iam:PassRole (beyond PowerUserAccess) to touch instances.
+AWS_PROFILE    := personal-admin
 PULUMI         := PULUMI_CONFIG_PASSPHRASE_FILE=$(HOME)/.config/pulumi/trk-k8s.passphrase pulumi
 
 # node name → public IP, straight from the inventory contract
