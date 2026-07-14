@@ -12,7 +12,7 @@ plane, **[workers]** only on workers. `make ssh-cp` / `make ssh-worker-1` /
 `make ssh-worker-2` to get shells.
 
 Versions: Kubernetes **v1.35** (deliberately one minor behind latest so the
-Phase 6 upgrade lab has somewhere to go — check https://kubernetes.io/releases/),
+Phase 6 upgrade lab has somewhere to go — check <https://kubernetes.io/releases/>),
 containerd from Ubuntu's repo.
 
 ---
@@ -85,7 +85,7 @@ containerd config default | sudo tee /etc/containerd/config.toml > /dev/null
 sudo sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
 ```
 
-2. Pause image version — align containerd's sandbox image with what kubeadm
+1. Pause image version — align containerd's sandbox image with what kubeadm
    expects (silences a kubeadm warning; the pause container is the tiny
    process that holds each pod's network namespace open):
 
@@ -109,8 +109,17 @@ curl -fsSL https://pkgs.k8s.io/core:/stable:/${K8S_MINOR}/deb/Release.key \
 echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/${K8S_MINOR}/deb/ /" \
   | sudo tee /etc/apt/sources.list.d/kubernetes.list
 sudo apt-get update
-sudo apt-get install -y kubelet kubeadm kubectl
+sudo apt-get install -y kubelet kubeadm kubectl cri-tools
 sudo apt-mark hold kubelet kubeadm kubectl   # upgrades must be deliberate (Phase 6 lab)
+```
+
+`cri-tools` provides `crictl` (docker-ps-but-for-CRI — how you inspect
+containers on a k8s node). Point it at containerd's socket:
+
+```sh
+cat <<'EOF' | sudo tee /etc/crictl.yaml
+runtime-endpoint: unix:///run/containerd/containerd.sock
+EOF
 ```
 
 The kubelet now crash-loops ("waiting for config") — **expected**: kubeadm
@@ -131,6 +140,7 @@ sudo kubeadm init \
 ```
 
 Why each flag:
+
 - `--apiserver-advertise-address=10.0.1.10` — cluster-internal traffic stays
   on the private network; etcd binds here, workers join here.
 - `--pod-network-cidr=10.244.0.0/16` — the pod address space, handed to
