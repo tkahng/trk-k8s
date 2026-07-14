@@ -6,6 +6,11 @@ and document everything learned along the way. The cluster core is
 **provider-agnostic**: currently targeting AWS, previously Hetzner (kept), and
 deliberately deployable on-prem.
 
+A named end-goal beyond the cluster itself: **running PostgreSQL properly in
+Kubernetes** (StatefulSets → PgBouncer → Patroni/ZooKeeper HA → operators),
+culminating in a real prebuilt Postgres-backed stack like Saleor or Supabase
+(Phase 7).
+
 ## Architecture: two layers, one seam
 
 ```
@@ -97,6 +102,29 @@ docs/notes/ecosystem-tools.md for the tool landscape).
   replacement
 - Stretch: HA control plane; stand the same cluster up on Hetzner again as the
   portability proof
+
+### Phase 7 — Stateful workloads: PostgreSQL (a core learning objective)
+Understanding how to deploy and manage Postgres *inside* the cluster — the
+hardest and most valuable stateful workload. Comes after the automation phase
+on purpose: don't put state you care about on a cluster you can't yet rebuild
+confidently. Deliberate progression:
+1. Single Postgres instance + PVC — what a StatefulSet actually guarantees
+   (stable identity, ordered restarts, storage that follows the pod)
+2. **PgBouncer** in front — connection pooling, why Postgres needs it
+3. HA with **Patroni** — leader election, automatic failover, and the DCS
+   (distributed consensus store) choice: **ZooKeeper**/etcd classically, or
+   the Kubernetes API itself when running in-cluster (worth comparing —
+   running ZooKeeper explicitly teaches the consensus layer that k8s
+   otherwise hides)
+4. Operators that package all of the above (CloudNativePG, Zalando's
+   postgres-operator — the latter is Patroni underneath) — build by hand
+   first, then appreciate what the operator automates
+5. Capstone: deploy a real prebuilt Postgres-backed application stack —
+   **Saleor** (e-commerce) or **Supabase** — end to end behind ingress
+   with TLS
+
+Depends on: storage (Phase 4 CSI/local-path), ingress + cert-manager
+(Phase 5), and ideally GitOps (ArgoCD) for the capstone.
 
 ## Documentation layout
 
