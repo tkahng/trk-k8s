@@ -5,7 +5,9 @@
 set -euo pipefail
 
 NODE_NAME="${1:?usage: prep-node.sh <node-name>}"
-K8S_MINOR="v1.35"
+# Bumped to v1.36 after Drill 2 (2026-07-15) — rebuilds must not downgrade.
+# When v1.37 ships, the upgrade lab can run again before bumping this.
+K8S_MINOR="v1.36"
 
 echo "=== [$NODE_NAME] A1: hostname"
 hostnamectl set-hostname "$NODE_NAME"
