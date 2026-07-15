@@ -103,13 +103,18 @@ never opened), hello app as Kustomize base+overlay, and ArgoCD syncing it
 from the private repo via a read-only deploy key (Synced/Healthy).
 Follow-ups: move more addons under ArgoCD; consider app-of-apps pattern.
 
-### Phase 6 — Automate and drill
-- Encode the Phase 2 runbook into scripts driven by the inventory contract
-  (works against any provider or on-prem machines)
-- Teardown → rebuild drill; kubeadm upgrade; etcd backup/restore; node
-  replacement
-- Stretch: HA control plane; stand the same cluster up on Hetzner again as the
-  portability proof
+### Phase 6 — Automate and drill ✅ 2026-07-15
+- [x] Runbooks 02-05 encoded as inventory-driven scripts (`cluster/*.sh`,
+      `make bootstrap/platform/rebuild`) — provider-agnostic by contract
+- [x] Drill 1: teardown → rebuild, **~8 min** (caught the SSH-readiness race)
+- [x] Drill 2: rolling upgrade v1.35.6 → v1.36.2, zero downtime (caught the
+      nohup lesson; drove a worker by hand)
+- [x] Drill 3: etcd snapshot → destroyed data dir → restore, proven by
+      time-travel markers
+- [x] Drill 4: unannounced node termination → replacement Ready in ~7 min
+      via the same idempotent scripts
+- Stretch (parked): HA control plane; Hetzner portability proof; scheduled
+  off-node etcd snapshots
 
 ### Phase 7 — Stateful workloads: PostgreSQL (a core learning objective)
 Understanding how to deploy and manage Postgres *inside* the cluster — the
