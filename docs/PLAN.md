@@ -116,6 +116,12 @@ Follow-ups: move more addons under ArgoCD; consider app-of-apps pattern.
 - Stretch (parked): HA control plane; Hetzner portability proof; scheduled
   off-node etcd snapshots
 
+### Phase 6.5 — Gateway API migration (added 2026-07-15)
+ingress-nginx retired upstream March 2026 (docs/notes/reverse-proxies.md).
+Lab: enable Cilium's Gateway API support (Envoy already runs on every node),
+migrate hello Ingress → HTTPRoute, uninstall ingress-nginx. Do before the
+capstone so Phase 7 lands on the future-proof path.
+
 ### Phase 7 — Stateful workloads: PostgreSQL (a core learning objective)
 Understanding how to deploy and manage Postgres *inside* the cluster — the
 hardest and most valuable stateful workload. Comes after the automation phase
