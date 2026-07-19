@@ -151,6 +151,21 @@ confidently. Deliberate progression:
 Depends on: storage (Phase 4 CSI/local-path), ingress + cert-manager
 (Phase 5), and ideally GitOps (ArgoCD) for the capstone.
 
+### Phase 8 — Talos comparison lab (added 2026-07-18)
+Rebuild on Talos Linux and judge it against kubeadm+Ubuntu — ADR 004
+deferred exactly this until the machinery had been seen; Phases 6/6.5
+banked that experience. Two things recorded now, decided then:
+- **It is not a provider swap.** The inventory contract carries `sshUser`;
+  Talos has no SSH — the whole `cluster/` layer (prep-node, bootstrap,
+  etcd drills) gets replaced by machine configs + `talosctl`, and the
+  Phase 6.5 stack (kube-proxy-free Cilium, hostNetwork gateway, CRD
+  ordering) needs re-porting. `infra/<provider>/` survives unchanged.
+- **Deliberately after Phase 7:** the drill that makes Talos interesting
+  is rebuild-with-state (machine configs + the etcd/PV backup story with
+  real Postgres data at stake) — stateless rebuilds would just re-prove
+  Phase 6. Also isolates variables: Postgres lands on a known OS first;
+  local-path on Talos's immutable FS (kubelet `extraMounts`) comes second.
+
 ## Documentation layout
 
 ```
