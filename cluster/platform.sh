@@ -64,6 +64,20 @@ echo "### gateway (cilium gateway api — the edge, ex ingress-nginx)"
 kubectl apply -f "$REPO_ROOT/cluster/addons/gateway/gateway.yaml" > /dev/null
 echo "  gateway applied"
 
+echo "### postgres credentials (phase 7 — secret from local file, never git)"
+PG_PASS_FILE="${PG_PASS_FILE:-$HOME/.config/trk-k8s/postgres-password}"
+kubectl get ns postgres > /dev/null 2>&1 || kubectl create ns postgres > /dev/null
+if ! kubectl -n postgres get secret postgres-credentials > /dev/null 2>&1; then
+  if [ -f "$PG_PASS_FILE" ]; then
+    kubectl -n postgres create secret generic postgres-credentials \
+      --from-file=password="$PG_PASS_FILE" > /dev/null
+    echo "  postgres-credentials secret created from $PG_PASS_FILE"
+  else
+    echo "  WARNING: no postgres-credentials secret and no $PG_PASS_FILE —"
+    echo "  postgres will sit in CreateContainerConfigError until it exists."
+  fi
+fi
+
 echo "### argocd + repo credential + applications"
 helm repo add argo https://argoproj.github.io/argo-helm > /dev/null 2>&1 || true
 helm_i argocd argocd argo/argo-cd

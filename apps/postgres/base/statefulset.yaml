@@ -1,0 +1,75 @@
+# Phase 7.1 — a single Postgres, by hand. The point is to see what a
+# StatefulSet actually guarantees before any operator hides it:
+#   - stable identity: the pod is postgres-0, always, across reschedules
+#     (a Deployment would mint postgres-7d9f8-xyz12 each time)
+#   - storage follows the pod: volumeClaimTemplates mints a PVC PER
+#     ORDINAL (data-postgres-0) and rebinds it to the same ordinal on
+#     every restart — delete the pod, the data comes back
+#   - ordered, one-at-a-time rollout — irrelevant at replicas:1, load-
+#     bearing the moment 7.3 adds replicas
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+spec:
+  serviceName: postgres   # the headless Service that owns pod DNS
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          # postgres:18 changed the volume layout: mount /var/lib/postgresql
+          # (not .../data) — PGDATA lives in a version dir under it
+          # (/var/lib/postgresql/18/docker), so a future major upgrade can
+          # pg_upgrade --link inside one volume.
+          image: postgres:18
+          ports:
+            - containerPort: 5432
+              name: postgres
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials   # terminal-only, never git
+                  key: password
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres", "-h", "127.0.0.1"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres", "-h", "127.0.0.1"]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+  # The other half of the stateful story. No storageClassName = the
+  # default class = local-path (ADR 003 portability), which means a
+  # hostPath on whichever node the pod FIRST lands on — the PV's node
+  # affinity then pins postgres-0 to that node forever. Deliberate:
+  # 7.1's drill makes that trade visible (kill the node and the pod is
+  # Pending, not rescheduled). ebs-sc would follow the pod instead;
+  # etcd snapshots do NOT cover this data (drill 3 lesson) — Postgres
+  # backup is its own story, coming in this phase.
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi
