@@ -39,6 +39,8 @@ while IFS=$'\t' read -r name public user; do
       sleep 5
     done
     echo "  ssh TIMEOUT after 150s: $name" >&2
+    echo "  hint: if ALL nodes time out, the firewall may not admit your current IP" >&2
+    echo "        (AWS: make check-ip && make up, then re-run)" >&2
     exit 1
   ) &
   pids+=($!)

@@ -12,7 +12,7 @@ PULUMI         := PULUMI_CONFIG_PASSPHRASE_FILE=$(HOME)/.config/pulumi/trk-k8s.p
 # node name → public IP, straight from the inventory contract
 node_ip = $(shell cd $(INFRA_DIR) && $(PULUMI) stack output nodes | jq -r '.[] | select(.name=="$(1)").publicIp')
 
-.PHONY: help login preview up destroy nodes outputs set-myip ssh-cp ssh-worker-1 ssh-worker-2 kubeconfig bootstrap platform rebuild
+.PHONY: help login preview up destroy nodes outputs check-ip set-myip ssh-cp ssh-worker-1 ssh-worker-2 kubeconfig bootstrap platform rebuild
 
 help: ## list available targets
 	@grep -E '^[a-z0-9-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -23,7 +23,7 @@ login: ## refresh AWS SSO credentials (run when sessions expire)
 preview: ## show what pulumi would change
 	cd $(INFRA_DIR) && $(PULUMI) preview
 
-up: ## create/update the cluster machines
+up: check-ip ## create/update the cluster machines
 	cd $(INFRA_DIR) && $(PULUMI) up --yes
 
 destroy: ## tear everything down (do this when done for the day)
@@ -35,8 +35,19 @@ nodes: ## print the node inventory (the provider-agnostic contract)
 outputs: ## print all stack outputs
 	@cd $(INFRA_DIR) && $(PULUMI) stack output
 
-set-myip: ## update the admin IP in stack config (run after your IP changes)
-	cd $(INFRA_DIR) && $(PULUMI) config set myIp "$$(curl -s https://checkip.amazonaws.com)/32"
+# The SG only admits myIp for SSH/6443/NodePorts — if your public IP drifts
+# (ISP lease, different network), every rebuild locks you out at "wait for
+# SSH". Learned the hard way 2026-07-18; `up` now runs this preflight.
+check-ip: ## sync stack config myIp with your current public IP (auto-runs before `up`)
+	@current="$$(curl -sf --max-time 10 https://checkip.amazonaws.com)"; \
+	if [ -z "$$current" ]; then echo "check-ip: WARN could not reach checkip.amazonaws.com, skipping"; exit 0; fi; \
+	cd $(INFRA_DIR); configured="$$($(PULUMI) config get myIp)"; \
+	if [ "$$current/32" != "$$configured" ]; then \
+		echo "check-ip: myIp drift ($$configured -> $$current/32), updating stack config"; \
+		$(PULUMI) config set myIp "$$current/32"; \
+	else echo "check-ip: myIp OK ($$configured)"; fi
+
+set-myip: check-ip ## manually sync the admin IP, then remind to apply (kept for muscle memory)
 	@echo "now run: make up"
 
 bootstrap: ## kubeadm + cilium on the provisioned machines (runbooks 02+03, scripted)
