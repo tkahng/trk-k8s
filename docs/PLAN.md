@@ -137,7 +137,9 @@ confidently. Deliberate progression:
    actually guarantees (stable identity, ordered restarts, storage that
    follows the pod); drilled: identity + data survive pod deletion,
    local-path pins the pod to the data's node (cordon → Pending)
-2. **PgBouncer** in front — connection pooling, why Postgres needs it
+2. ✅ (2026-07-18) **PgBouncer** in front — connection pooling, why
+   Postgres needs it; drilled: 5 clients / pool of 2 / all succeed;
+   Deployment-vs-StatefulSet and VIP-vs-headless contrasts
 3. HA with **Patroni** — leader election, automatic failover, and the DCS
    (distributed consensus store) choice: **ZooKeeper**/etcd classically, or
    the Kubernetes API itself when running in-cluster (worth comparing —
