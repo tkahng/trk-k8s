@@ -1,7 +1,7 @@
-# Gateway API successor to ingress.yaml (Phase 6.5). Note what is ABSENT
-# compared to the old Ingress overlay: no cert-manager annotation, no tls
-# block — TLS is the Gateway's job (cluster/addons/gateway/). The app only
-# claims its hostname and points at its Service.
+# Gateway API successor to the Ingress this app carried pre-6.5. Note what
+# is ABSENT compared to that Ingress overlay: no cert-manager annotation,
+# no tls block — TLS is the Gateway's job (cluster/addons/gateway/). The
+# app only claims its hostname and points at its Service.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:

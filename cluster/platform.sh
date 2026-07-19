@@ -37,10 +37,6 @@ if $WITH_AWS; then
   kubectl apply -f "$REPO_ROOT/cluster/addons/aws-ebs-csi/storageclass.yaml" > /dev/null
 fi
 
-echo "### ingress-nginx (NodePort 30080/30443)"
-helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx > /dev/null 2>&1 || true
-helm_i ingress-nginx ingress-nginx ingress-nginx/ingress-nginx -f "$REPO_ROOT/cluster/addons/ingress-nginx/values.yaml"
-
 echo "### metrics-server"
 helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/ > /dev/null 2>&1 || true
 helm_i metrics-server kube-system metrics-server/metrics-server -f "$REPO_ROOT/cluster/addons/metrics-server/values.yaml"
@@ -61,6 +57,12 @@ if ! kubectl -n cert-manager get secret cloudflare-api-token > /dev/null 2>&1; t
 fi
 kubectl apply -f "$REPO_ROOT/cluster/addons/cert-manager/issuers/letsencrypt.yaml" > /dev/null
 echo "  issuers applied"
+
+echo "### gateway (cilium gateway api — the edge, ex ingress-nginx)"
+# Cilium's controller (enabled at bootstrap) programs it; cert-manager
+# issues the wildcard *.k8s.kahng.dev cert the HTTPS listener references.
+kubectl apply -f "$REPO_ROOT/cluster/addons/gateway/gateway.yaml" > /dev/null
+echo "  gateway applied"
 
 echo "### argocd + repo credential + applications"
 helm repo add argo https://argoproj.github.io/argo-helm > /dev/null 2>&1 || true

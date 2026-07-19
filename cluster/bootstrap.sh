@@ -96,7 +96,12 @@ sed -i '' "s|https://$cp_private:6443|https://$cp_public:6443|" "$REPO_ROOT/kube
   || sed -i "s|https://$cp_private:6443|https://$cp_public:6443|" "$REPO_ROOT/kubeconfig"
 export KUBECONFIG="$REPO_ROOT/kubeconfig"
 
-echo "### Step 5: install Cilium (CNI)"
+echo "### Step 5: install Cilium (CNI + Gateway API)"
+# Gateway API CRDs MUST exist before Cilium starts with gatewayAPI.enabled
+# (Phase 6.5) — the agent only registers its controller if it sees them.
+kubectl apply --server-side -f \
+  https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.1/standard-install.yaml > /dev/null
+echo "  gateway api v1.4.1 crds applied"
 if helm status cilium -n kube-system > /dev/null 2>&1; then
   echo "  cilium already installed — skipping"
 else

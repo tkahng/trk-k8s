@@ -27,18 +27,18 @@ metadata:
 spec:
   gatewayClassName: cilium
   listeners:
-    # MIGRATION: temporary ports while ingress-nginx still holds
-    # 30080/30443 — flipped to the real ports at cutover.
+    # Same ports ingress-nginx used — the firewall rules (infra/aws) and
+    # every URL stay unchanged across the migration.
     - name: http
       protocol: HTTP
-      port: 30081
+      port: 30080
       hostname: "*.k8s.kahng.dev"
       allowedRoutes:
         namespaces:
           from: All
     - name: https
       protocol: HTTPS
-      port: 30444
+      port: 30443
       hostname: "*.k8s.kahng.dev"
       tls:
         mode: Terminate

@@ -4,5 +4,4 @@ resources:
   - ../../base
 patches:
   - path: replicas.yaml
-  - path: ingress-host.yaml
   - path: httproute-host.yaml

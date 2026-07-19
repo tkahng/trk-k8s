@@ -102,14 +102,14 @@ func main() {
 					CidrBlocks:  pulumi.StringArray{pulumi.String(myIP)},
 				},
 				&ec2.SecurityGroupIngressArgs{
-					Description: pulumi.String("ingress-nginx HTTP NodePort from admin"),
+					Description: pulumi.String("gateway HTTP from admin (cilium envoy, hostNetwork)"),
 					Protocol:    pulumi.String("tcp"),
 					FromPort:    pulumi.Int(30080),
 					ToPort:      pulumi.Int(30080),
 					CidrBlocks:  pulumi.StringArray{pulumi.String(myIP)},
 				},
 				&ec2.SecurityGroupIngressArgs{
-					Description: pulumi.String("ingress-nginx HTTPS NodePort from admin"),
+					Description: pulumi.String("gateway HTTPS from admin (cilium envoy, hostNetwork)"),
 					Protocol:    pulumi.String("tcp"),
 					FromPort:    pulumi.Int(30443),
 					ToPort:      pulumi.Int(30443),
