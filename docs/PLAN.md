@@ -133,8 +133,10 @@ Understanding how to deploy and manage Postgres *inside* the cluster — the
 hardest and most valuable stateful workload. Comes after the automation phase
 on purpose: don't put state you care about on a cluster you can't yet rebuild
 confidently. Deliberate progression:
-1. Single Postgres instance + PVC — what a StatefulSet actually guarantees
-   (stable identity, ordered restarts, storage that follows the pod)
+1. ✅ (2026-07-18) Single Postgres instance + PVC — what a StatefulSet
+   actually guarantees (stable identity, ordered restarts, storage that
+   follows the pod); drilled: identity + data survive pod deletion,
+   local-path pins the pod to the data's node (cordon → Pending)
 2. **PgBouncer** in front — connection pooling, why Postgres needs it
 3. HA with **Patroni** — leader election, automatic failover, and the DCS
    (distributed consensus store) choice: **ZooKeeper**/etcd classically, or
