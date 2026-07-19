@@ -116,11 +116,17 @@ Follow-ups: move more addons under ArgoCD; consider app-of-apps pattern.
 - Stretch (parked): HA control plane; Hetzner portability proof; scheduled
   off-node etcd snapshots
 
-### Phase 6.5 — Gateway API migration (added 2026-07-15)
-ingress-nginx retired upstream March 2026 (docs/notes/reverse-proxies.md).
-Lab: enable Cilium's Gateway API support (Envoy already runs on every node),
-migrate hello Ingress → HTTPRoute, uninstall ingress-nginx. Do before the
-capstone so Phase 7 lands on the future-proof path.
+### Phase 6.5 — Gateway API migration ✅ 2026-07-18
+ingress-nginx retired upstream March 2026 (docs/notes/reverse-proxies.md);
+replaced by Cilium's Gateway API implementation — ADR 005.
+- [x] Lab A: kube-proxy replaced by Cilium eBPF (required by its Gateway
+      API; kubeadm init skips the addon, k8sServiceHost from inventory)
+- [x] Lab B: Gateway API v1.4.1 CRDs + `gatewayAPI.enabled` +
+      cert-manager gateway-shim
+- [x] Gateway `main` (hostNetwork Envoy on the same 30080/30443) with one
+      wildcard `*.k8s.kahng.dev` cert; hello Ingress → HTTPRoute; TLS
+      moved from app manifests to infra
+- [x] ingress-nginx uninstalled; URLs/firewall unchanged through cutover
 
 ### Phase 7 — Stateful workloads: PostgreSQL (a core learning objective)
 Understanding how to deploy and manage Postgres *inside* the cluster — the

@@ -1,7 +1,11 @@
-# Runbook 05 — Platform: metrics, ingress, TLS, GitOps
+# Runbook 05 — Platform: metrics, edge, TLS, GitOps
 
 Phase 5, all from the laptop. Ends with the hello app serving HTTPS at a
 real domain and deploying itself from git.
+
+> Phase 6.5 update: ingress-nginx (retired upstream 2026-03) was replaced
+> by **Cilium Gateway API** — see the "edge" section below and
+> docs/decisions/005. Ports, firewall rules, and URLs did not change.
 
 ## metrics-server
 
@@ -10,13 +14,22 @@ real domain and deploying itself from git.
 self-signed certs; the flag is the standard learning-cluster tradeoff).
 Enables `kubectl top` and, later, HPAs.
 
-## ingress-nginx — the portable no-cloud-LB path
+## The edge — Cilium Gateway API (ex ingress-nginx)
 
-NodePort with FIXED ports 30080/30443
-(`cluster/addons/ingress-nginx/values.yaml`), opened in the AWS security
-group from the admin IP only (infra/aws). Set as the default IngressClass.
-The same Ingress resources would work unchanged behind MetalLB (on-prem) or
-a cloud LB (with CCM) — only this values file changes.
+One `Gateway` (`cluster/addons/gateway/gateway.yaml`, applied by
+platform.sh) with wildcard `*.k8s.kahng.dev` listeners on the same fixed
+ports 30080/30443, opened in the AWS security group from the admin IP only
+(infra/aws). Cilium implements it with the cilium-envoy DaemonSet in
+**hostNetwork mode**: Envoy binds the ports on every node directly — no
+cloud LB, no MetalLB, portable everywhere (the Gateway-API successor to
+ADR 003's fixed-NodePort tactic). Requires kube-proxy replacement and the
+Gateway API CRDs before Cilium starts — both encoded in bootstrap.sh.
+Apps attach a namespaced `HTTPRoute` to this Gateway; they never touch
+ports or TLS.
+
+Known cosmetic quirk: in hostNetwork mode the Gateway shows
+`PROGRAMMED=False / "waiting for address"` (no LB Service to copy an
+address from) even while serving correctly — verify with curl, not status.
 
 ## TLS — cert-manager + Let's Encrypt DNS-01 (Cloudflare)
 
@@ -31,9 +44,11 @@ a cloud LB (with CCM) — only this values file changes.
   dedicated low-stakes domain, kahng.dev, not a heavily-used zone).
 - DNS: wildcard A record `*.k8s.kahng.dev` → control-plane public IP,
   Cloudflare proxy OFF. Changes every rebuild — update in Cloudflare.
-- Consumption is one annotation + tls block on an Ingress (see
-  `apps/hello/overlays/dev/ingress-host.yaml`); cert-manager materializes
-  the Certificate automatically. Issued in ~90s.
+- Consumption (since Phase 6.5): one `cert-manager.io/cluster-issuer`
+  annotation on the **Gateway**; gateway-shim materializes a single
+  WILDCARD cert (`*.k8s.kahng.dev`) that every HTTPRoute rides for free
+  (needs `config.gatewayAPI.enabled=true` in cert-manager values). Apps
+  carry no TLS config at all. Issued in ~90s.
 - Verify: `curl -v https://hello.k8s.kahng.dev:30443/` → issuer
   "Let's Encrypt", verify ok.
 
