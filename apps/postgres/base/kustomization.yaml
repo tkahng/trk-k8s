@@ -3,3 +3,6 @@ kind: Kustomization
 resources:
   - statefulset.yaml
   - service.yaml
+  - pgbouncer-config.yaml
+  - pgbouncer-deployment.yaml
+  - pgbouncer-service.yaml

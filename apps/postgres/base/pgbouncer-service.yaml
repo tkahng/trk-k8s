@@ -1,0 +1,15 @@
+# A NORMAL Service (VIP, load-balanced) — the second contrast with the
+# headless one: clients don't care which pgbouncer answers, so a VIP is
+# right here and wrong for postgres. Apps connect HERE, never to
+# postgres-0 directly; when 7.3 adds failover, this indirection is what
+# keeps application config stable.
+apiVersion: v1
+kind: Service
+metadata:
+  name: pgbouncer
+spec:
+  selector:
+    app: pgbouncer
+  ports:
+    - port: 5432
+      name: postgres

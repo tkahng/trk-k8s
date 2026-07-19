@@ -1,0 +1,46 @@
+# Phase 7.2 — PgBouncer, configured by hand (the image can generate all
+# of this from env vars; writing the ini is the point).
+#
+# WHY a pooler at all: Postgres forks one OS PROCESS per connection —
+# each costs real memory and fork latency, and max_connections (default
+# 100) is a hard wall. App platforms open many mostly-idle connections
+# (every replica x its own pool), so the naive path exhausts a database
+# that is doing almost nothing. PgBouncer multiplexes: thousands of cheap
+# client sockets share a handful of real server processes.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pgbouncer-config
+data:
+  pgbouncer.ini: |
+    [databases]
+    ; one entry: everything proxies to the primary. 7.3 (Patroni) is
+    ; where this splits into primary vs replica endpoints.
+    * = host=postgres-0.postgres.postgres.svc.cluster.local port=5432
+
+    [pgbouncer]
+    listen_addr = 0.0.0.0
+    listen_port = 5432
+
+    ; clients authenticate to pgbouncer with SCRAM; the auth_file holds
+    ; the plaintext password (mounted from the same Secret postgres uses,
+    ; never git) so pgbouncer can also authenticate upstream.
+    auth_type = scram-sha-256
+    auth_file = /run/pgbouncer/userlist.txt
+
+    ; transaction pooling — the aggressive mode and the reason poolers
+    ; exist: a server connection is borrowed per TRANSACTION and returned
+    ; the instant it commits, so idle clients hold nothing. The trade:
+    ; session state (SET, LISTEN, advisory locks) doesn't survive across
+    ; transactions. Protocol-level prepared statements are handled since
+    ; pgbouncer 1.21 via max_prepared_statements.
+    pool_mode = transaction
+    max_prepared_statements = 100
+
+    ; deliberately tiny pool so the drill is visible: many clients,
+    ; TWO real server processes.
+    max_client_conn = 200
+    default_pool_size = 2
+
+    ; the admin console: psql -d pgbouncer, then SHOW POOLS / SHOW CLIENTS
+    admin_users = postgres

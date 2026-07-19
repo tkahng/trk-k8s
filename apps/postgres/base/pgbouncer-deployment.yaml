@@ -1,0 +1,71 @@
+# PgBouncer is a DEPLOYMENT — the deliberate contrast with postgres's
+# StatefulSet. It holds no state (pools are in-memory, rebuilt on start),
+# so it gets random pod names, no PVCs, free rescheduling to any node,
+# and horizontal scaling by bumping replicas. Stateful vs stateless is
+# the whole Phase 7 lesson in two workload kinds, side by side.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pgbouncer
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: pgbouncer
+  template:
+    metadata:
+      labels:
+        app: pgbouncer
+    spec:
+      # The auth_file can't live in git (it holds the real password) and
+      # can't come straight from the Secret (pgbouncer wants its own
+      # userlist format), so an init container renders it into a shared
+      # tmpfs from the same Secret postgres itself uses.
+      initContainers:
+        - name: render-userlist
+          image: busybox:1.36
+          command: ["sh", "-c", "printf '\"postgres\" \"%s\"\\n' \"$PGPASS\" > /run/pgbouncer/userlist.txt"]
+          env:
+            - name: PGPASS
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: password
+          volumeMounts:
+            - name: userlist
+              mountPath: /run/pgbouncer
+      containers:
+        - name: pgbouncer
+          image: edoburu/pgbouncer:v1.25.2-p0
+          # run pgbouncer directly against OUR ini — the image entrypoint
+          # would otherwise generate a config from env vars (that's the
+          # convenience layer we're declining on purpose).
+          command: ["pgbouncer", "/etc/pgbouncer/pgbouncer.ini"]
+          ports:
+            - containerPort: 5432
+              name: postgres
+          volumeMounts:
+            - name: config
+              mountPath: /etc/pgbouncer
+              readOnly: true
+            - name: userlist
+              mountPath: /run/pgbouncer
+              readOnly: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          readinessProbe:
+            tcpSocket:
+              port: 5432
+            initialDelaySeconds: 2
+            periodSeconds: 5
+      volumes:
+        - name: config
+          configMap:
+            name: pgbouncer-config
+        - name: userlist
+          emptyDir:
+            medium: Memory   # tmpfs — the rendered password never touches disk
