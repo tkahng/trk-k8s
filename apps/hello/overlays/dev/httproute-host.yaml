@@ -1,0 +1,10 @@
+# Env-specific host only. TLS lives with the Gateway (wildcard cert for
+# *.k8s.kahng.dev), so unlike the old Ingress patch there is nothing else
+# to override here.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: hello
+spec:
+  hostnames:
+    - hello.k8s.kahng.dev

@@ -1,0 +1,49 @@
+# The cluster's edge, as Gateway API (Phase 6.5) — replaces ingress-nginx.
+#
+# Role separation is the point of the API: this file is INFRA (owns the
+# listener ports and the wildcard cert); apps own only their HTTPRoute and
+# never touch TLS. Contrast with Ingress, where every app's manifest
+# carried the cert annotation and tls block.
+#
+# Cilium implements it with the cilium-envoy DaemonSet in hostNetwork mode:
+# Envoy binds these listener ports on every node directly — no cloud LB, no
+# MetalLB, portable to on-prem (successor to ADR 003's fixed NodePorts).
+#
+# TLS: cert-manager (gateway-shim) sees the cluster-issuer annotation and
+# materializes one WILDCARD cert for *.k8s.kahng.dev via DNS-01 — every
+# future app rides it for free; secret lives here, next to the Gateway.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gateway
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: main
+  namespace: gateway
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  gatewayClassName: cilium
+  listeners:
+    # MIGRATION: temporary ports while ingress-nginx still holds
+    # 30080/30443 — flipped to the real ports at cutover.
+    - name: http
+      protocol: HTTP
+      port: 30081
+      hostname: "*.k8s.kahng.dev"
+      allowedRoutes:
+        namespaces:
+          from: All
+    - name: https
+      protocol: HTTPS
+      port: 30444
+      hostname: "*.k8s.kahng.dev"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: wildcard-k8s-kahng-dev-tls
+      allowedRoutes:
+        namespaces:
+          from: All

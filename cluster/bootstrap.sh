@@ -63,10 +63,13 @@ echo "### Step 2: kubeadm init on $cp_name"
 if run "$cp_user" "$cp_public" "sudo test -f /etc/kubernetes/admin.conf"; then
   echo "  control plane already initialized — skipping"
 else
+  # --skip-phases=addon/kube-proxy: Cilium replaces kube-proxy (Phase 6.5) —
+  # eBPF service translation, and a hard requirement of its Gateway API.
   run "$cp_user" "$cp_public" "sudo kubeadm init \
     --apiserver-advertise-address=$cp_private \
     --pod-network-cidr=$POD_CIDR \
-    --apiserver-cert-extra-sans=$cp_public" > /tmp/kubeadm-init.log 2>&1
+    --apiserver-cert-extra-sans=$cp_public \
+    --skip-phases=addon/kube-proxy" > /tmp/kubeadm-init.log 2>&1
   echo "  init OK (log: /tmp/kubeadm-init.log)"
 fi
 
@@ -98,8 +101,12 @@ if helm status cilium -n kube-system > /dev/null 2>&1; then
   echo "  cilium already installed — skipping"
 else
   helm repo add cilium https://helm.cilium.io/ > /dev/null 2>&1 || true
+  # k8sServiceHost: with kubeProxyReplacement there is no kube-proxy to
+  # provide the in-cluster API server VIP, so Cilium must be told the real
+  # endpoint. Comes from the inventory — provider-specific, not values.yaml.
   helm install cilium cilium/cilium --version 1.19.4 \
-    --namespace kube-system -f "$REPO_ROOT/cluster/addons/cilium/values.yaml" > /dev/null
+    --namespace kube-system -f "$REPO_ROOT/cluster/addons/cilium/values.yaml" \
+    --set k8sServiceHost="$cp_private" --set k8sServicePort=6443 > /dev/null
 fi
 
 echo "### Step 6: wait for all nodes Ready"

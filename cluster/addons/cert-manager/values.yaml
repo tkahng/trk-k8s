@@ -1,5 +1,12 @@
 # cert-manager — certificate machinery (Issuers, Certificates, ACME).
-# Issuers live in cluster/addons/cert-manager/issuers/ (DNS-01 via Route53;
-# no inbound access needed, so the locked-down firewall stays locked).
+# Issuers live in cluster/addons/cert-manager/issuers/ (DNS-01 via
+# Cloudflare; no inbound access needed, so the locked-down firewall stays
+# locked).
 crds:
   enabled: true   # install/upgrade the CRDs with the chart
+
+# Phase 6.5: watch annotated Gateways (gateway-shim) the way ingress-shim
+# watched Ingresses — the Gateway API CRDs must exist first (bootstrap.sh).
+config:
+  gatewayAPI:
+    enabled: true

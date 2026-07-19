@@ -3,4 +3,7 @@ kind: Kustomization
 resources:
   - deployment.yaml
   - service.yaml
+  # MIGRATION (Phase 6.5): ingress + httproute side by side until the
+  # ingress-nginx -> cilium gateway cutover, then ingress.yaml goes away.
   - ingress.yaml
+  - httproute.yaml

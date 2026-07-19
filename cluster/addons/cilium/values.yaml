@@ -21,6 +21,29 @@ hubble:
   ui:
     enabled: true
 
-# Deliberately NOT set: kubeProxyReplacement (kube-proxy stays for now;
-# replacing it is a planned later lab), routing mode (default vxlan tunnel
-# works on any provider — portable choice).
+# Phase 6.5: Cilium replaces kube-proxy entirely (eBPF service translation
+# instead of iptables) — required by Cilium's Gateway API support, and the
+# "planned later lab" finally done. Two things travel with this flag:
+#   - kubeadm init must skip the kube-proxy addon (bootstrap.sh does)
+#   - Cilium can no longer bootstrap its API server connection through the
+#     in-cluster Service VIP (that VIP *was* kube-proxy's job), so
+#     bootstrap.sh passes --set k8sServiceHost=<cp private IP> from the
+#     inventory. Kept out of this file: provider-specific, not portable.
+kubeProxyReplacement: true
+
+# Phase 6.5: Cilium is the Gateway API implementation (ingress-nginx retired
+# upstream 2026-03 — docs/notes/reverse-proxies.md). Uses the cilium-envoy
+# DaemonSet already on every node. Requires kubeProxyReplacement=true and
+# the Gateway API CRDs pre-installed (bootstrap.sh, before this chart).
+#
+# hostNetwork: Envoy binds listener ports directly on every node instead of
+# Cilium creating a LoadBalancer Service. This is the portable successor to
+# ADR 003's fixed NodePorts — no cloud LB, no MetalLB, works identically
+# on-prem. Listener ports must be >1023; ours (30080/30443) are.
+gatewayAPI:
+  enabled: true
+  hostNetwork:
+    enabled: true
+
+# Deliberately NOT set: routing mode (default vxlan tunnel works on any
+# provider — portable choice).
