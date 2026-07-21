@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>trk-k8s — Architecture &amp; Process</title>
+<style>
+  :root {
+    --bg: #f2f4f6;
+    --surface: #ffffff;
+    --surface-2: #eaeef2;
+    --ink: #16202b;
+    --muted: #5a6b7c;
+    --line: #d3dbe3;
+    --line-strong: #aebbc7;
+    --accent: #2456e6;
+    --accent-ink: #ffffff;
+    --accent-soft: #e3eafd;
+    --ok: #187a4b;
+    --ok-soft: #ddf2e6;
+    --warn: #a06a14;
+    --warn-soft: #f6ecd7;
+    --parked: #7a8a9b;
+    --parked-soft: #e7ecf0;
+    --code-bg: #101823;
+    --code-ink: #d7e2ee;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e141b;
+      --surface: #161e28;
+      --surface-2: #1d2733;
+      --ink: #e6ecf2;
+      --muted: #8fa0b1;
+      --line: #2a3644;
+      --line-strong: #3d4c5d;
+      --accent: #6e93ff;
+      --accent-ink: #0e141b;
+      --accent-soft: #1d2a4a;
+      --ok: #46c284;
+      --ok-soft: #143323;
+      --warn: #d9a24a;
+      --warn-soft: #33270f;
+      --parked: #78899a;
+      --parked-soft: #1c242e;
+      --code-bg: #0a1017;
+      --code-ink: #c8d5e2;
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #f2f4f6; --surface: #ffffff; --surface-2: #eaeef2; --ink: #16202b;
+    --muted: #5a6b7c; --line: #d3dbe3; --line-strong: #aebbc7;
+    --accent: #2456e6; --accent-ink: #ffffff; --accent-soft: #e3eafd;
+    --ok: #187a4b; --ok-soft: #ddf2e6; --warn: #a06a14; --warn-soft: #f6ecd7;
+    --parked: #7a8a9b; --parked-soft: #e7ecf0;
+    --code-bg: #101823; --code-ink: #d7e2ee;
+  }
+  :root[data-theme="dark"] {
+    --bg: #0e141b; --surface: #161e28; --surface-2: #1d2733; --ink: #e6ecf2;
+    --muted: #8fa0b1; --line: #2a3644; --line-strong: #3d4c5d;
+    --accent: #6e93ff; --accent-ink: #0e141b; --accent-soft: #1d2a4a;
+    --ok: #46c284; --ok-soft: #143323; --warn: #d9a24a; --warn-soft: #33270f;
+    --parked: #78899a; --parked-soft: #1c242e;
+    --code-bg: #0a1017; --code-ink: #c8d5e2;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+
+  /* ---------- header ---------- */
+  header.site { padding: 56px 0 32px; border-bottom: 1px solid var(--line); }
+  .eyebrow {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--accent); margin: 0 0 12px;
+  }
+  h1 {
+    font-size: clamp(28px, 4.5vw, 42px); line-height: 1.12; margin: 0 0 12px;
+    letter-spacing: -0.02em; text-wrap: balance; font-weight: 700;
+  }
+  .lede { color: var(--muted); max-width: 62ch; margin: 0 0 20px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12.5px; padding: 4px 10px; border: 1px solid var(--line);
+    border-radius: 999px; background: var(--surface); color: var(--muted);
+    white-space: nowrap;
+  }
+  .chip b { color: var(--ink); font-weight: 600; }
+
+  /* ---------- nav ---------- */
+  nav.toc {
+    position: sticky; top: 0; z-index: 20;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--line);
+  }
+  nav.toc .wrap { display: flex; gap: 4px; overflow-x: auto; }
+  nav.toc a {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 13px; color: var(--muted); text-decoration: none;
+    padding: 12px 14px; border-bottom: 2px solid transparent; white-space: nowrap;
+  }
+  nav.toc a:hover, nav.toc a:focus-visible { color: var(--ink); border-bottom-color: var(--line-strong); }
+  nav.toc a:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  nav.toc .num { color: var(--accent); margin-right: 6px; }
+
+  /* ---------- sections ---------- */
+  section { padding: 48px 0 8px; }
+  section > .wrap > h2 {
+    font-size: 24px; letter-spacing: -0.015em; margin: 0 0 6px; scroll-margin-top: 64px;
+  }
+  .section-sub { color: var(--muted); margin: 0 0 28px; max-width: 68ch; }
+  h3.band {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--muted); margin: 36px 0 14px; display: flex; align-items: center; gap: 12px;
+  }
+  h3.band::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+
+  /* ---------- diagram primitives ---------- */
+  .board {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+    padding: 20px; overflow-x: auto;
+  }
+  .zone {
+    border: 1.5px dashed var(--line-strong); border-radius: 8px;
+    padding: 14px; position: relative; margin-top: 10px;
+  }
+  .zone > .tag {
+    position: absolute; top: -10px; left: 12px;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 11.5px; letter-spacing: .06em; color: var(--muted);
+    background: var(--surface); padding: 0 8px;
+  }
+  .zone.accent { border-color: var(--accent); }
+  .zone.accent > .tag { color: var(--accent); }
+
+  .box {
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px;
+    padding: 10px 12px; min-width: 0;
+  }
+  .box .t { font-weight: 600; font-size: 14px; }
+  .box .d {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px; color: var(--muted); margin-top: 2px;
+    font-variant-numeric: tabular-nums;
+  }
+  .box.node { border-left: 3px solid var(--accent); }
+  .box.parked { border-left: 3px solid var(--parked); background: var(--parked-soft); }
+  .box.ghost { border-style: dashed; background: transparent; }
+
+  .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: stretch; }
+  .row > * { flex: 1 1 180px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+
+  .conn {
+    display: flex; align-items: center; gap: 10px; margin: 14px 2px;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px; color: var(--muted);
+  }
+  .conn .wire { flex: 1; border-top: 1.5px solid var(--line-strong); position: relative; }
+  .conn .wire::after {
+    content: ""; position: absolute; right: -1px; top: -4.5px;
+    border: 4px solid transparent; border-left: 7px solid var(--line-strong);
+  }
+  .conn .lbl { white-space: nowrap; }
+
+  /* stepper (request paths) */
+  .steps { display: flex; flex-wrap: wrap; align-items: stretch; gap: 0; row-gap: 14px; }
+  .step {
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px;
+    padding: 8px 12px; min-width: 120px;
+  }
+  .step .t { font-size: 13px; font-weight: 600; }
+  .step .d {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 11.5px; color: var(--muted); margin-top: 1px;
+  }
+  .step-arrow {
+    align-self: center; padding: 0 8px; color: var(--accent);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 15px;
+  }
+
+  /* pills */
+  .pill {
+    display: inline-block; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 11px; letter-spacing: .05em; padding: 2px 9px; border-radius: 999px;
+    vertical-align: 2px;
+  }
+  .pill.ok { background: var(--ok-soft); color: var(--ok); }
+  .pill.warn { background: var(--warn-soft); color: var(--warn); }
+  .pill.parked { background: var(--parked-soft); color: var(--parked); }
+  .pill.accent { background: var(--accent-soft); color: var(--accent); }
+
+  /* tables */
+  .tbl-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  th, td { text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  th {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--muted); font-weight: 600; background: var(--surface-2);
+  }
+  td.mono, .tnum { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+
+  /* code */
+  pre.code {
+    background: var(--code-bg); color: var(--code-ink); border-radius: 8px;
+    padding: 14px 16px; overflow-x: auto; font-size: 12.5px; line-height: 1.55;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; margin: 0;
+  }
+  pre.code .c { opacity: .5; }
+
+  /* ---------- timeline ---------- */
+  .timeline { position: relative; margin: 8px 0 0; padding-left: 26px; }
+  .timeline::before {
+    content: ""; position: absolute; left: 7px; top: 6px; bottom: 6px;
+    width: 2px; background: var(--line);
+  }
+  .phase { position: relative; padding: 0 0 26px; }
+  .phase::before {
+    content: ""; position: absolute; left: -25px; top: 7px; width: 12px; height: 12px;
+    border-radius: 50%; background: var(--surface); border: 3px solid var(--accent);
+  }
+  .phase.done::before { border-color: var(--ok); background: var(--ok); }
+  .phase.wip::before { border-color: var(--warn); }
+  .phase.future::before { border-color: var(--line-strong); }
+  .phase h4 { margin: 0 0 4px; font-size: 16px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; }
+  .phase .when {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums;
+  }
+  .phase p { margin: 4px 0 8px; color: var(--muted); font-size: 14.5px; max-width: 72ch; }
+  .phase ul { margin: 6px 0 0; padding-left: 18px; font-size: 14px; color: var(--ink); }
+  .phase ul li { margin: 3px 0; }
+  .phase ul li .why { color: var(--muted); }
+
+  .loop-strip { display: flex; flex-wrap: wrap; gap: 0; row-gap: 12px; align-items: center; margin-top: 6px; }
+
+  .callout {
+    border-left: 3px solid var(--accent); background: var(--surface);
+    border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 20px 0; font-size: 14.5px;
+    color: var(--muted);
+  }
+  .callout b { color: var(--ink); }
+
+  footer.site {
+    border-top: 1px solid var(--line); margin-top: 56px; padding: 24px 0 48px;
+    color: var(--muted); font-size: 13px;
+  }
+  footer.site .mono { font-size: 12px; }
+  a.plain { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<header class="site">
+  <div class="wrap">
+    <p class="eyebrow">trk-k8s · learning cluster · jul 2026</p>
+    <h1>Architecture of the infra, the cluster, and the process that built them</h1>
+    <p class="lede">
+      A three-node Kubernetes cluster built from scratch: machines provisioned with the
+      Pulumi Go SDK, the cluster bootstrapped with kubeadm, everything drilled until it
+      could be rebuilt from nothing in about eight minutes.
+    </p>
+    <div class="chips">
+      <span class="chip"><b>k8s</b> v1.36.2</span>
+      <span class="chip"><b>3×</b> t3a.medium · us-east-1</span>
+      <span class="chip"><b>CNI</b> Cilium 1.19.4 (eBPF, no kube-proxy)</span>
+      <span class="chip"><b>edge</b> Gateway API · Envoy :30443</span>
+      <span class="chip"><b>rebuild</b> ~8 min</span>
+    </div>
+  </div>
+</header>
+
+<nav class="toc" aria-label="Sections">
+  <div class="wrap">
+    <a href="#infra"><span class="num">01</span>Infrastructure</a>
+    <a href="#cluster"><span class="num">02</span>Kubernetes cluster</a>
+    <a href="#process"><span class="num">03</span>Process &amp; phases</a>
+  </div>
+</nav>
+
+<!-- ================= 01 INFRA ================= -->
+<section id="infra">
+  <div class="wrap">
+    <h2>01 · Infrastructure layer</h2>
+    <p class="section-sub">
+      Provider-specific Pulumi Go programs whose only job is to produce machines and
+      export a <span class="mono">nodes</span> inventory. Currently AWS; the original
+      Hetzner program is parked but kept deployable.
+    </p>
+
+    <div class="board">
+      <div class="row">
+        <div class="box ghost" style="flex:1 1 220px">
+          <div class="t">Admin laptop</div>
+          <div class="d">ssh · kubectl · pulumi<br>guarded by <b>check-ip</b> preflight<br>(admin IP drifts; stack config syncs)</div>
+        </div>
+        <div class="box ghost" style="flex:1 1 220px">
+          <div class="t">Pulumi state</div>
+          <div class="d">s3://tkahng-pulumi-state<br>self-managed backend<br>passphrase-encrypted secrets</div>
+        </div>
+      </div>
+
+      <div class="conn"><span class="lbl">22 · 6443 · 30080 · 30443 — from admin IP only</span><span class="wire"></span></div>
+
+      <div class="zone accent">
+        <span class="tag">AWS · us-east-1 · Pulumi stack “dev”</span>
+        <div class="zone">
+          <span class="tag">VPC k8s-vpc · 10.0.0.0/16</span>
+          <div class="row" style="margin-bottom:12px">
+            <div class="box" style="flex:0 1 240px">
+              <div class="t">Internet gateway</div>
+              <div class="d">k8s-igw · route 0.0.0.0/0</div>
+            </div>
+            <div class="box" style="flex:1 1 320px">
+              <div class="t">Security group k8s-sg</div>
+              <div class="d">edge rules below · self-rule for all node-to-node traffic</div>
+            </div>
+          </div>
+          <div class="zone">
+            <span class="tag">public subnet k8s-nodes · 10.0.1.0/24</span>
+            <div class="grid-3">
+              <div class="box node">
+                <div class="t">k8s-cp-1</div>
+                <div class="d">control-plane<br>10.0.1.10 · t3a.medium<br>Ubuntu 24.04</div>
+              </div>
+              <div class="box node">
+                <div class="t">k8s-worker-1</div>
+                <div class="d">worker<br>10.0.1.11 · t3a.medium<br>Ubuntu 24.04</div>
+              </div>
+              <div class="box node">
+                <div class="t">k8s-worker-2</div>
+                <div class="d">worker<br>10.0.1.12 · t3a.medium<br>Ubuntu 24.04</div>
+              </div>
+            </div>
+            <div class="row" style="margin-top:12px">
+              <div class="box ghost">
+                <div class="t" style="font-size:13px">Node IAM instance profile</div>
+                <div class="d">EBS CSI permissions · IMDSv2 with hop limit 3 (pods need the extra hop — found via Hubble)</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <h3 class="band">security group — every ingress rule</h3>
+    <div class="tbl-scroll">
+      <table>
+        <thead><tr><th>Port</th><th>Source</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">22</td><td>admin IP /32</td><td>SSH for bootstrap &amp; drills</td></tr>
+          <tr><td class="mono">6443</td><td>admin IP /32</td><td>kube-apiserver (kubectl from the laptop)</td></tr>
+          <tr><td class="mono">30080 / 30443</td><td>admin IP /32</td><td>HTTP/HTTPS edge — Envoy gateway (formerly ingress-nginx NodePorts)</td></tr>
+          <tr><td class="mono">all</td><td>the SG itself</td><td>node-to-node: etcd, kubelet, VXLAN, everything cluster-internal</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="callout">
+      <b>The firewall was never opened to the world.</b> Real TLS certificates still work
+      because cert-manager proves domain ownership with DNS-01 records on Cloudflare —
+      Let’s Encrypt never needs to reach the cluster.
+    </p>
+
+    <h3 class="band">the seam — one contract, any provider</h3>
+    <div class="board">
+      <div class="row">
+        <div class="box">
+          <div class="t">infra/aws <span class="pill ok">active</span></div>
+          <div class="d">VPC · subnet · SG · 3× EC2<br>Pulumi Go</div>
+        </div>
+        <div class="box parked">
+          <div class="t">infra/hetzner <span class="pill parked">parked</span></div>
+          <div class="d">network · firewall · 3× CX23<br>no VM capacity, Jul 2026 (ADR 001/002)</div>
+        </div>
+        <div class="box ghost">
+          <div class="t">on-prem</div>
+          <div class="d">hand-written inventory JSON<br>nothing downstream can tell</div>
+        </div>
+      </div>
+      <div class="conn"><span class="lbl">pulumi stack output nodes</span><span class="wire"></span></div>
+      <div class="row">
+        <div style="flex: 1 1 380px">
+<pre class="code">[
+  { "name": "k8s-cp-1",     "role": "control-plane",
+    "publicIp": "…", "privateIp": "10.0.1.10", "sshUser": "ubuntu" },
+  { "name": "k8s-worker-1", "role": "worker",
+    "publicIp": "…", "privateIp": "10.0.1.11", "sshUser": "ubuntu" },
+  { "name": "k8s-worker-2", "role": "worker",
+    "publicIp": "…", "privateIp": "10.0.1.12", "sshUser": "ubuntu" }
+]</pre>
+        </div>
+        <div class="box" style="flex: 1 1 240px; align-self: stretch">
+          <div class="t">cluster/ — consumes only this</div>
+          <div class="d">
+            prep-node.sh · bootstrap.sh · platform.sh<br><br>
+            Rules: Ubuntu 24.04 over SSH at publicIp; all cluster traffic on privateIp;
+            <b>no cloud APIs</b> — CCM, CSI, cloud LBs stay optional addons (ADR 003)
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 02 CLUSTER ================= -->
+<section id="cluster">
+  <div class="wrap">
+    <h2>02 · Kubernetes cluster</h2>
+    <p class="section-sub">
+      One control plane, two workers, kubeadm-built. Cilium replaces kube-proxy outright,
+      and its Gateway API implementation is the only edge — ingress-nginx was retired in
+      Phase 6.5 (ADR 005).
+    </p>
+
+    <div class="board">
+      <div class="zone accent">
+        <span class="tag">control plane · k8s-cp-1 · static pods</span>
+        <div class="grid-3">
+          <div class="box"><div class="t">etcd</div><div class="d">binds 10.0.1.10<br>snapshot/restore drilled</div></div>
+          <div class="box"><div class="t">kube-apiserver</div><div class="d">advertises privateIp<br>cert SAN: publicIp → :6443</div></div>
+          <div class="box"><div class="t">scheduler + controller-manager</div><div class="d">stock kubeadm</div></div>
+        </div>
+      </div>
+
+      <div class="zone">
+        <span class="tag">every node · k8s-cp-1 / worker-1 / worker-2</span>
+        <div class="grid-3">
+          <div class="box"><div class="t">kubelet + containerd</div><div class="d">registered on privateIp</div></div>
+          <div class="box node"><div class="t">Cilium agent (eBPF)</div><div class="d">CNI · pod CIDR 10.244.0.0/16<br><b>kube-proxy replacement</b> — kubeadm skips the addon<br>Hubble relay + UI</div></div>
+          <div class="box"><div class="t">Envoy (Gateway “main”)</div><div class="d">hostNetwork :30080/:30443<br>wildcard TLS *.k8s.kahng.dev</div></div>
+        </div>
+      </div>
+
+      <div class="zone">
+        <span class="tag">platform addons</span>
+        <div class="grid-3">
+          <div class="box"><div class="t">cert-manager</div><div class="d">Let’s Encrypt · DNS-01 (Cloudflare)<br>gateway-shim → wildcard cert</div></div>
+          <div class="box"><div class="t">ArgoCD</div><div class="d">syncs apps/ from private repo<br>read-only deploy key</div></div>
+          <div class="box"><div class="t">metrics-server</div><div class="d">kubectl top</div></div>
+          <div class="box"><div class="t">StorageClass: local-path <span class="pill accent">default</span></div><div class="d">portable · pins pod to data’s node</div></div>
+          <div class="box"><div class="t">StorageClass: ebs-sc <span class="pill accent">opt-in</span></div><div class="d">EBS CSI · volume moves across nodes</div></div>
+          <div class="box ghost"><div class="t">Gateway API v1.4.1 CRDs</div><div class="d">Gateway + HTTPRoute<br>replaces Ingress</div></div>
+        </div>
+      </div>
+
+      <div class="zone">
+        <span class="tag">workloads · deployed via ArgoCD (Kustomize base + overlay)</span>
+        <div class="grid-3">
+          <div class="box"><div class="t">hello</div><div class="d">traefik/whoami · Deployment<br>HTTPRoute: hello.k8s.kahng.dev</div></div>
+          <div class="box"><div class="t">pgbouncer ×2</div><div class="d">Deployment (stateless)<br>edoburu/pgbouncer v1.25.2<br>hand-written ini · VIP Service :6432</div></div>
+          <div class="box node"><div class="t">postgres pg-0</div><div class="d">StatefulSet ·  postgres:18<br>PVC 5Gi (local-path, node-pinned)<br>headless Service · stable identity</div></div>
+        </div>
+      </div>
+    </div>
+
+    <h3 class="band">request path — https</h3>
+    <div class="board">
+      <div class="steps">
+        <div class="step"><div class="t">Client</div><div class="d">hello.k8s.kahng.dev:30443</div></div>
+        <span class="step-arrow">→</span>
+        <div class="step"><div class="t">DNS</div><div class="d">Cloudflare → node public IP</div></div>
+        <span class="step-arrow">→</span>
+        <div class="step"><div class="t">Envoy</div><div class="d">hostNetwork :30443 · TLS via wildcard cert</div></div>
+        <span class="step-arrow">→</span>
+        <div class="step"><div class="t">HTTPRoute</div><div class="d">Gateway API match</div></div>
+        <span class="step-arrow">→</span>
+        <div class="step"><div class="t">Service</div><div class="d">Cilium eBPF (no kube-proxy)</div></div>
+        <span class="step-arrow">→</span>
+        <div class="step"><div class="t">Pod</div><div class="d">hello / whoami</div></div>
+      </div>
+    </div>
+
+    <h3 class="band">data path — postgres</h3>
+    <div class="board">
+      <div class="steps">
+        <div class="step"><div class="t">App client</div><div class="d">many short-lived conns</div></div>
+        <span class="step-arrow">→</span>
+        <div class="step"><div class="t">pgbouncer Service</div><div class="d">VIP · :6432</div></div>
+        <span class="step-arrow">→</span>
+        <div class="step"><div class="t">pgbouncer ×2</div><div class="d">pool — drilled: 5 clients over a pool of 2, all succeed</div></div>
+        <span class="step-arrow">→</span>
+        <div class="step"><div class="t">headless Service</div><div class="d">stable DNS: pg-0.…</div></div>
+        <span class="step-arrow">→</span>
+        <div class="step"><div class="t">pg-0</div><div class="d">StatefulSet member</div></div>
+        <span class="step-arrow">→</span>
+        <div class="step"><div class="t">PVC 5Gi</div><div class="d">local-path — data pins the pod to its node</div></div>
+      </div>
+      <p class="callout" style="margin-bottom:0">
+        <b>Drilled guarantees:</b> delete pg-0 and it returns with the same name, same DNS,
+        same data. Cordon its node and it goes <span class="mono">Pending</span> rather than
+        losing the volume — the storage, not the scheduler, decides where it lives.
+        Deployment-vs-StatefulSet and VIP-vs-headless were contrasted deliberately:
+        pgbouncer is interchangeable, postgres is not.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 03 PROCESS ================= -->
+<section id="process">
+  <div class="wrap">
+    <h2>03 · The process</h2>
+    <p class="section-sub">
+      Every capability follows the same loop — nothing gets automated before it has been
+      done by hand, and nothing counts as done until a drill tried to break it.
+    </p>
+
+    <div class="board">
+      <div class="steps">
+        <div class="step"><div class="t">Do it by hand</div><div class="d">SSH, kubeadm, psql</div></div>
+        <span class="step-arrow">→</span>
+        <div class="step"><div class="t">Write the runbook</div><div class="d">docs/runbooks/</div></div>
+        <span class="step-arrow">→</span>
+        <div class="step"><div class="t">Encode as script</div><div class="d">cluster/*.sh · inventory-driven</div></div>
+        <span class="step-arrow">→</span>
+        <div class="step"><div class="t">Drill it</div><div class="d">break it on purpose</div></div>
+        <span class="step-arrow">→</span>
+        <div class="step"><div class="t">Journal + ADR</div><div class="d">docs/journal/ · docs/decisions/</div></div>
+      </div>
+    </div>
+
+    <h3 class="band">rebuild pipeline — proven at ~8 minutes</h3>
+    <div class="board">
+      <div class="steps">
+        <div class="step"><div class="t">pulumi up</div><div class="d">machines + inventory</div></div>
+        <span class="step-arrow">→</span>
+        <div class="step"><div class="t">prep-node.sh</div><div class="d">×3 · waits for SSH (drill 1 fix)</div></div>
+        <span class="step-arrow">→</span>
+        <div class="step"><div class="t">bootstrap.sh</div><div class="d">kubeadm init + join</div></div>
+        <span class="step-arrow">→</span>
+        <div class="step"><div class="t">Cilium</div><div class="d">helm · nodes Ready</div></div>
+        <span class="step-arrow">→</span>
+        <div class="step"><div class="t">platform.sh</div><div class="d">gateway · certs · argocd</div></div>
+        <span class="step-arrow">→</span>
+        <div class="step"><div class="t">ArgoCD sync</div><div class="d">apps return from git</div></div>
+      </div>
+    </div>
+
+    <h3 class="band">phases</h3>
+    <div class="timeline">
+      <div class="phase done">
+        <h4>Phase 0–1 · Tooling, accounts, machines <span class="pill ok">done</span> <span class="when">jul 13</span></h4>
+        <p>Pulumi Go programs for Hetzner, then the pivot: no CX23 capacity, so AWS
+        (3× t3a.medium, ~$0.35 per 3-hour lab on credits). The pivot forced the project’s
+        best idea — the provider-agnostic inventory contract.</p>
+      </div>
+      <div class="phase done">
+        <h4>Phase 2 · kubeadm bootstrap, by hand <span class="pill ok">done</span> <span class="when">jul 14</span></h4>
+        <p>certs, static pods, etcd, join tokens — cluster up at v1.35.6, deliberately
+        NotReady awaiting a CNI.</p>
+      </div>
+      <div class="phase done">
+        <h4>Phase 3 · Cilium <span class="pill ok">done</span> <span class="when">jul 14</span></h4>
+        <p>Cilium 1.19.4 via Helm; nodes Ready, connectivity test 79/80, Hubble running.</p>
+      </div>
+      <div class="phase done">
+        <h4>Phase 4 · Storage <span class="pill ok">done</span> <span class="when">jul 14</span></h4>
+        <p>local-path as portable default; EBS CSI opt-in. The IMDS hop-limit-3 bug,
+        debugged with Hubble, was the phase’s best lesson.</p>
+      </div>
+      <div class="phase done">
+        <h4>Phase 5 · Platform <span class="pill ok">done</span> <span class="when">jul 14</span></h4>
+        <p>metrics-server, ingress-nginx, cert-manager with DNS-01 on Cloudflare (real
+        certs, closed firewall), hello app, ArgoCD syncing from the private repo.</p>
+      </div>
+      <div class="phase done">
+        <h4>Phase 6 · Automate &amp; drill <span class="pill ok">done</span> <span class="when">jul 15</span></h4>
+        <ul>
+          <li>Drill 1 — teardown → rebuild in ~8 min <span class="why">· caught the SSH-readiness race</span></li>
+          <li>Drill 2 — rolling upgrade v1.35.6 → v1.36.2, zero downtime</li>
+          <li>Drill 3 — etcd snapshot → destroyed data dir → restore <span class="why">· proven by time-travel markers</span></li>
+          <li>Drill 4 — unannounced node kill → replacement Ready in ~7 min</li>
+        </ul>
+      </div>
+      <div class="phase done">
+        <h4>Phase 6.5 · Gateway API migration <span class="pill ok">done</span> <span class="when">jul 18</span></h4>
+        <p>ingress-nginx retired upstream (mar 2026) → Cilium Gateway API (ADR 005):
+        kube-proxy replaced with eBPF, Gateway API v1.4.1, hostNetwork Envoy on the same
+        ports, TLS moved from app manifests to infra. URLs and firewall unchanged through
+        the cutover.</p>
+      </div>
+      <div class="phase wip">
+        <h4>Phase 7 · PostgreSQL <span class="pill warn">in progress</span> <span class="when">jul 18 →</span></h4>
+        <p>The named end-goal: state you care about, on a cluster you can rebuild.</p>
+        <ul>
+          <li>7.1 ✅ StatefulSet + PVC — identity and data survive pod deletion</li>
+          <li>7.2 ✅ PgBouncer — pooling, Deployment-vs-StatefulSet, VIP-vs-headless</li>
+          <li>7.3 — Patroni HA <span class="why">· leader election; DCS choice: ZooKeeper/etcd vs the k8s API</span></li>
+          <li>7.4 — Operators <span class="why">· CloudNativePG / Zalando — appreciate what they automate</span></li>
+          <li>7.5 — Capstone <span class="why">· Saleor or Supabase end-to-end behind the gateway</span></li>
+        </ul>
+      </div>
+      <div class="phase future">
+        <h4>Phase 8 · Talos comparison lab <span class="pill parked">planned</span></h4>
+        <p>Rebuild on Talos Linux and judge it against kubeadm+Ubuntu (ADR 004).
+        Deliberately after Phase 7: the interesting drill is rebuild-with-state, with real
+        Postgres data at stake. Not a provider swap — no SSH means the whole
+        <span class="mono">cluster/</span> layer becomes machine configs +
+        <span class="mono">talosctl</span>; <span class="mono">infra/</span> survives unchanged.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer class="site">
+  <div class="wrap">
+    <p>Sources: <span class="mono">docs/PLAN.md</span>, <span class="mono">docs/decisions/ADR 001–005</span>,
+    <span class="mono">docs/journal/</span> (12 entries, 2026-07-13 → 2026-07-18).
+    Diagrams reflect the cluster as of Phase 7.2.</p>
+  </div>
+</footer>
+
+</body>
+</html>
