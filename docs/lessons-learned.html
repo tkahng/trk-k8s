@@ -1,0 +1,684 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>trk-k8s — Lessons Learned</title>
+<style>
+  :root {
+    --bg: #f2f4f6;
+    --surface: #ffffff;
+    --surface-2: #eaeef2;
+    --ink: #16202b;
+    --muted: #5a6b7c;
+    --line: #d3dbe3;
+    --line-strong: #aebbc7;
+    --accent: #2456e6;
+    --accent-soft: #e3eafd;
+    --ok: #187a4b;
+    --ok-soft: #ddf2e6;
+    --warn: #a06a14;
+    --warn-soft: #f6ecd7;
+    --parked: #7a8a9b;
+    --parked-soft: #e7ecf0;
+    --code-bg: #101823;
+    --code-ink: #d7e2ee;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e141b; --surface: #161e28; --surface-2: #1d2733; --ink: #e6ecf2;
+      --muted: #8fa0b1; --line: #2a3644; --line-strong: #3d4c5d;
+      --accent: #6e93ff; --accent-soft: #1d2a4a;
+      --ok: #46c284; --ok-soft: #143323; --warn: #d9a24a; --warn-soft: #33270f;
+      --parked: #78899a; --parked-soft: #1c242e;
+      --code-bg: #0a1017; --code-ink: #c8d5e2;
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #f2f4f6; --surface: #ffffff; --surface-2: #eaeef2; --ink: #16202b;
+    --muted: #5a6b7c; --line: #d3dbe3; --line-strong: #aebbc7;
+    --accent: #2456e6; --accent-soft: #e3eafd;
+    --ok: #187a4b; --ok-soft: #ddf2e6; --warn: #a06a14; --warn-soft: #f6ecd7;
+    --parked: #7a8a9b; --parked-soft: #e7ecf0;
+    --code-bg: #101823; --code-ink: #d7e2ee;
+  }
+  :root[data-theme="dark"] {
+    --bg: #0e141b; --surface: #161e28; --surface-2: #1d2733; --ink: #e6ecf2;
+    --muted: #8fa0b1; --line: #2a3644; --line-strong: #3d4c5d;
+    --accent: #6e93ff; --accent-soft: #1d2a4a;
+    --ok: #46c284; --ok-soft: #143323; --warn: #d9a24a; --warn-soft: #33270f;
+    --parked: #78899a; --parked-soft: #1c242e;
+    --code-bg: #0a1017; --code-ink: #c8d5e2;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  code {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: .86em; background: var(--surface-2); border: 1px solid var(--line);
+    border-radius: 4px; padding: 1px 5px; white-space: nowrap;
+  }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 24px; }
+
+  header.site { padding: 56px 0 32px; border-bottom: 1px solid var(--line); }
+  .eyebrow {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--accent); margin: 0 0 12px;
+  }
+  h1 {
+    font-size: clamp(28px, 4.5vw, 42px); line-height: 1.12; margin: 0 0 12px;
+    letter-spacing: -0.02em; text-wrap: balance; font-weight: 700;
+  }
+  .lede { color: var(--muted); max-width: 62ch; margin: 0 0 20px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12.5px; padding: 4px 10px; border: 1px solid var(--line);
+    border-radius: 999px; background: var(--surface); color: var(--muted); white-space: nowrap;
+  }
+  .chip b { color: var(--ink); font-weight: 600; }
+
+  nav.toc {
+    position: sticky; top: 0; z-index: 20;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(8px); border-bottom: 1px solid var(--line);
+  }
+  nav.toc .wrap { display: flex; gap: 4px; overflow-x: auto; }
+  nav.toc a {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 13px; color: var(--muted); text-decoration: none;
+    padding: 12px 12px; border-bottom: 2px solid transparent; white-space: nowrap;
+  }
+  nav.toc a:hover, nav.toc a:focus-visible { color: var(--ink); border-bottom-color: var(--line-strong); }
+  nav.toc a:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+  section { padding: 44px 0 4px; }
+  section > .wrap > h2 { font-size: 22px; letter-spacing: -0.015em; margin: 0 0 6px; scroll-margin-top: 64px; }
+  .section-sub { color: var(--muted); margin: 0 0 22px; max-width: 68ch; font-size: 15px; }
+
+  /* legend pills */
+  .pill {
+    display: inline-block; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 10.5px; letter-spacing: .06em; padding: 2px 8px; border-radius: 999px;
+    text-transform: uppercase;
+  }
+  .pill.bitten { background: var(--warn-soft); color: var(--warn); }
+  .pill.drilled { background: var(--accent-soft); color: var(--accent); }
+  .pill.observed { background: var(--ok-soft); color: var(--ok); }
+  .pill.decided { background: var(--parked-soft); color: var(--parked); }
+
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 14px 24px; margin: 18px 0 0;
+    padding: 14px 18px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  }
+  .legend .item { display: flex; align-items: baseline; gap: 8px; font-size: 13.5px; color: var(--muted); }
+
+  /* meta lessons */
+  .meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+  .meta-card {
+    background: var(--surface); border: 1px solid var(--line); border-top: 3px solid var(--accent);
+    border-radius: 8px; padding: 16px 18px;
+  }
+  .meta-card h3 { margin: 0 0 6px; font-size: 15.5px; letter-spacing: -0.01em; }
+  .meta-card p { margin: 0; font-size: 14px; color: var(--muted); }
+
+  /* lesson entries */
+  .lessons { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; align-items: start; }
+  .lesson {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+    padding: 14px 16px 12px; display: flex; flex-direction: column; gap: 6px;
+  }
+  .lesson .claim { font-weight: 600; font-size: 14.5px; line-height: 1.4; }
+  .lesson .story { font-size: 13.5px; color: var(--muted); line-height: 1.5; }
+  .lesson .src {
+    margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--line);
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums;
+  }
+
+  .callout {
+    border-left: 3px solid var(--accent); background: var(--surface);
+    border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 22px 0 0;
+    font-size: 14.5px; color: var(--muted);
+  }
+  .callout b { color: var(--ink); }
+
+  footer.site {
+    border-top: 1px solid var(--line); margin-top: 56px; padding: 24px 0 48px;
+    color: var(--muted); font-size: 13px;
+  }
+</style>
+</head>
+<body>
+
+<header class="site">
+  <div class="wrap">
+    <p class="eyebrow">trk-k8s · field notes · jul 13 – 18, 2026</p>
+    <h1>Lessons learned building a Kubernetes cluster from scratch</h1>
+    <p class="lede">
+      Everything the journal taught us, distilled from twelve dated entries — six days
+      from an empty AWS account to a kube-proxy-free cluster running Postgres behind a
+      Gateway API edge. Each lesson is tagged with how it was earned.
+    </p>
+    <div class="chips">
+      <span class="chip"><b>12</b> journal entries</span>
+      <span class="chip"><b>4</b> drills</span>
+      <span class="chip"><b>5</b> ADRs</span>
+      <span class="chip"><b>56</b> lessons + 5 meta-patterns</span>
+    </div>
+    <div class="legend">
+      <span class="item"><span class="pill bitten">bitten</span> an incident taught it the hard way</span>
+      <span class="item"><span class="pill drilled">drilled</span> broken on purpose to prove it</span>
+      <span class="item"><span class="pill observed">observed</span> watched it happen, understood it</span>
+      <span class="item"><span class="pill decided">decided</span> a design call, recorded up front</span>
+    </div>
+  </div>
+</header>
+
+<nav class="toc" aria-label="Sections">
+  <div class="wrap">
+    <a href="#meta">Meta</a>
+    <a href="#cloud">Cloud &amp; IaC</a>
+    <a href="#internals">K8s internals</a>
+    <a href="#network">Networking &amp; edge</a>
+    <a href="#gitops">GitOps &amp; secrets</a>
+    <a href="#state">State &amp; storage</a>
+    <a href="#craft">Operator craft</a>
+  </div>
+</nav>
+
+<!-- ============ META ============ -->
+<section id="meta">
+  <div class="wrap">
+    <h2>The lessons above the lessons</h2>
+    <p class="section-sub">Five patterns that kept recurring across every phase.</p>
+    <div class="meta-grid">
+      <div class="meta-card">
+        <h3>Drills find bugs that reading never will</h3>
+        <p>Drill 1 found the SSH-readiness race. Drill 2 found the naked-session mistake.
+        Drill 4 proved nodes were cattle. Every deliberate breakage returned a real fix —
+        none of them would have surfaced from documentation.</p>
+      </div>
+      <div class="meta-card">
+        <h3>Idempotency is the feature that pays for everything</h3>
+        <p>Every recovery story ends the same way: re-run the same command. The interrupted
+        upgrade, the double bootstrap, the node replacement — all healed because scripts
+        skip what's done and redo nothing they shouldn't.</p>
+      </div>
+      <div class="meta-card">
+        <h3>Everything of value lives in three places</h3>
+        <p>Git (manifests, scripts), Pulumi state (infra), two local secret files. The
+        cluster itself held nothing worth keeping — the design goal that made an 8-minute
+        rebuild possible. Phase 7's Postgres is the first thing to change that.</p>
+      </div>
+      <div class="meta-card">
+        <h3>Control plane down ≠ outage</h3>
+        <p>Seen three times, most starkly in drill 3: etcd and the API server stopped,
+        kubectl refused — and the hello app served HTTP 200 throughout. Running pods,
+        routing, and Cilium don't need the API; you just can't <em>change</em> anything.</p>
+      </div>
+      <div class="meta-card">
+        <h3>Observability installed early pays off later</h3>
+        <p>Hubble went in with Cilium in Phase 3 as a nice-to-have. In Phase 4 it ended a
+        four-step debugging mystery in one command. Logs say "timeout"; the network
+        observer says <em>why</em> and <em>where</em>.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CLOUD ============ -->
+<section id="cloud">
+  <div class="wrap">
+    <h2>Cloud providers &amp; IaC</h2>
+    <p class="section-sub">What AWS, Hetzner, and Pulumi taught us about the layer beneath the cluster.</p>
+    <div class="lessons">
+      <div class="lesson">
+        <div class="claim">Re-verify pricing folklore — it has an expiry date.</div>
+        <div class="story">Hetzner's June 2026 repricing flipped the usual advice: ARM (CAX11 €5.99)
+        became <em>more</em> expensive than budget x86 (CX23 €5.49). "ARM is the cheap option" was true until it wasn't.</div>
+        <div class="src"><span>jul 13 · ADR 001</span><span class="pill observed">observed</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">A provider listing a product ≠ having capacity.</div>
+        <div class="story">Hetzner had no CX23 VMs when it was time to provision. The forced AWS pivot
+        produced the project's best idea: the provider-agnostic inventory contract, with on-prem as an explicit target.</div>
+        <div class="src"><span>jul 13 · ADR 002</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Firewall semantics differ per cloud — and the seam must absorb it.</div>
+        <div class="story">Hetzner firewalls filter only the public interface; AWS security groups filter
+        <em>all</em> traffic, so node-to-node needs an explicit self-referencing rule. Exactly the class of
+        difference the inventory contract exists to contain.</div>
+        <div class="src"><span>jul 13</span><span class="pill observed">observed</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Even the SSH login user is provider-specific.</div>
+        <div class="story">Hetzner Ubuntu logs in as <code>root</code>, the AWS Ubuntu AMI as <code>ubuntu</code>.
+        Encoded as <code>sshUser</code> in the contract instead of assumed anywhere.</div>
+        <div class="src"><span>jul 13</span><span class="pill observed">observed</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Pulumi handles partial failure by remembering the successes.</div>
+        <div class="story">First <code>pulumi up</code>: 10 of 11 resources created, then AWS's new-account
+        <code>PendingVerification</code> blocked the third instance. State recorded the 10; the retry created only
+        the missing one. Second run: clean.</div>
+        <div class="src"><span>jul 13</span><span class="pill observed">observed</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Cloud addons pull cloud identity in with them.</div>
+        <div class="story">One storage driver (EBS CSI) brought an IAM role, an instance profile, a
+        <code>iam:PassRole</code> requirement on every future <code>pulumi up</code>, and a permanent switch to the
+        admin profile. Nothing cloud-flavored is ever just a Helm chart.</div>
+        <div class="src"><span>jul 14 · phase 4</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">IMDS hop limit 2 is one too few with an overlay CNI.</div>
+        <div class="story">TCP handshakes survived but every response data packet died — Hubble showed
+        <code>TTL exceeded DROPPED</code> on each one. One hop into the node stack, one crossing Cilium into the
+        pod veth. Fix: hop limit 3, set in Pulumi.</div>
+        <div class="src"><span>jul 14 · phase 4</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">The browser SSO session belongs to whoever logged in last.</div>
+        <div class="story">An <code>aws sso login</code> for the poweruser profile, approved by a browser session
+        holding the admin user, mints a token that 403s when asking for the PowerUser role. Identity Center users
+        also sign in at the access-portal URL, not the normal AWS page.</div>
+        <div class="src"><span>jul 13–14</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">A state-lock error doesn't mean an operation is running.</div>
+        <div class="story">The S3 backend held a lock from a <code>pulumi destroy</code> whose process had died.
+        Check the pid in the lock message; if it's gone, <code>pulumi cancel</code> is safe.</div>
+        <div class="src"><span>jul 18 · resurrection</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Admin IP drift is a guaranteed recurring failure — check it mechanically.</div>
+        <div class="story">The security group faithfully enforced a stale <code>myIp</code> after the ISP rotated,
+        locking us out at the TCP level. Fixed at the right layer (<code>pulumi config set myIp</code>), then automated:
+        <code>make check-ip</code> runs before every <code>up</code>. It caught the next drift mid-session three days later.</div>
+        <div class="src"><span>jul 18 · resurrection + 7.1</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">AWS costs ~7× Hetzner for the same shape — teardown habits close the gap.</div>
+        <div class="story">t3a.medium at ~$27/mo vs CX23 at €5.49/mo. Hourly billing, ~$200 of new-account
+        credits, and <code>pulumi destroy</code> between sessions make each 3-hour lab cost about $0.35.</div>
+        <div class="src"><span>jul 13 · ADR 002</span><span class="pill decided">decided</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ INTERNALS ============ -->
+<section id="internals">
+  <div class="wrap">
+    <h2>Kubernetes internals</h2>
+    <p class="section-sub">What kubeadm, upgrades, and node drills exposed about how the machine actually works.</p>
+    <div class="lessons">
+      <div class="lesson">
+        <div class="claim">The control plane hosts itself via static pods.</div>
+        <div class="story">etcd, the API server, scheduler, and controller-manager are YAML files in
+        <code>/etc/kubernetes/manifests/</code>, run by the kubelet straight from disk — no scheduler involved.
+        "Stopping etcd" in drill 3 was <code>mv</code>-ing a file out of that directory.</div>
+        <div class="src"><span>jul 14 + drill 3</span><span class="pill observed">observed</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">NotReady × 3 can be a success state.</div>
+        <div class="story">A kubeadm cluster without a CNI is <em>supposed</em> to be NotReady. Control-plane pods
+        run anyway (hostNetwork); CoreDNS stays Pending because it needs a pod network — the visible difference
+        between the two. It waited 24 minutes for a network to exist, then scheduled.</div>
+        <div class="src"><span>jul 14 · phase 2–3</span><span class="pill observed">observed</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Version-skew tolerance is what makes rolling upgrades possible.</div>
+        <div class="story">A mixed cluster (control plane on 1.36, workers on 1.35) is a supported, normal
+        mid-upgrade state — not an accident to rush out of. The hello app returned 200 at every checkpoint,
+        including during the etcd swap.</div>
+        <div class="src"><span>jul 15 · drill 2</span><span class="pill drilled">drilled</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim"><code>kubeadm upgrade apply</code> is designed to be interrupted.</div>
+        <div class="story">When SSH died mid-upgrade and took kubeadm with it, the kubelet had already finished
+        the etcd swap from the new manifest; re-running the apply completed idempotently. It's resumable on purpose.</div>
+        <div class="src"><span>jul 15 · drill 2</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Node name is captured at registration and is immutable after.</div>
+        <div class="story">A worker about to join with hostname <code>ip-10-0-1-11</code> would have kept that name
+        forever. Set the hostname <em>before</em> <code>kubeadm join</code> — caught just in time.</div>
+        <div class="src"><span>jul 14 · phase 2</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">There is no "node replacement procedure" — that's the achievement.</div>
+        <div class="story">An unannounced AWS-level termination was healed by the same two idempotent commands as
+        everything else: <code>pulumi up</code> + <code>make bootstrap</code>. Replacement Ready in ~7 minutes, same
+        private IP (fixed addressing pays off). Nodes are fully cattle.</div>
+        <div class="src"><span>jul 15 · drill 4</span><span class="pill drilled">drilled</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Kubernetes hedges 5 minutes before evicting pods from a dead node.</div>
+        <div class="story">NotReady arrived in under a minute (kubelet heartbeat), but pod eviction waits a further
+        5 minutes by default — a tolerance against network blips, auto-added to every pod. For a known corpse,
+        <code>kubectl delete node</code> short-circuits it (and is required anyway before a same-name rejoin).</div>
+        <div class="src"><span>jul 15 · drill 4</span><span class="pill drilled">drilled</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Drain evicts pods but not DaemonSets — by design.</div>
+        <div class="story">Cilium and CSI pods stay put during a drain (hence <code>--ignore-daemonsets</code>);
+        they're per-node infrastructure, not workloads to migrate.</div>
+        <div class="src"><span>jul 15 · drill 2</span><span class="pill observed">observed</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">After maintenance, workloads sit wherever history put them.</div>
+        <div class="story">Both hello replicas ended up on worker-1 — evicted there during the upgrade drill and
+        never rebalanced. The scheduler places on creation; it doesn't rebalance. <code>kubectl rollout restart</code>
+        or a descheduler if it matters.</div>
+        <div class="src"><span>jul 15 · drill 4</span><span class="pill observed">observed</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Not every error is real — some are just "too early".</div>
+        <div class="story">A transient <code>Forbidden</code> right after the kubelet restart was the API server
+        still warming up (RBAC not yet synced). The retry succeeded. Distinguish broken from booting.</div>
+        <div class="src"><span>jul 15 · drill 2</span><span class="pill observed">observed</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ NETWORK ============ -->
+<section id="network">
+  <div class="wrap">
+    <h2>Networking &amp; the edge</h2>
+    <p class="section-sub">Cilium, the kube-proxy retirement, and the Gateway API migration.</p>
+    <div class="lessons">
+      <div class="lesson">
+        <div class="claim">The CNI's default pod CIDR can contain your VPC.</div>
+        <div class="story">Cilium's default pool is 10.0.0.0/8 — which includes the 10.0.0.0/16 VPC; pods would
+        have collided with machines. The one critical Helm value: pin the pool to kubeadm's
+        <code>--pod-network-cidr</code> (10.244.0.0/16).</div>
+        <div class="src"><span>jul 14 · phase 3</span><span class="pill decided">decided</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Logs say "timeout"; Hubble says why and where.</div>
+        <div class="story">Four debugging steps (driver logs, pod-side probes, instance metadata options, NAT rules)
+        narrowed nothing. One command — <code>hubble observe --ip 169.254.169.254</code> — showed every response
+        packet dropped with TTL exceeded. The Phase 3 observability install solved the Phase 4 mystery.</div>
+        <div class="src"><span>jul 14 · phase 4</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Replacing kube-proxy has a chicken-and-egg hiding in it.</div>
+        <div class="story">Cilium agents normally reach the API through the in-cluster <code>kubernetes</code>
+        Service VIP — but translating that VIP <em>was kube-proxy's job</em>. The real API server address must be
+        passed explicitly (<code>k8sServiceHost</code>), and it comes from the inventory, not values.yaml.</div>
+        <div class="src"><span>jul 18 · phase 6.5</span><span class="pill observed">observed</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Order matters when swapping the service plane live.</div>
+        <div class="story">Enable Cilium's replacement first (eBPF and iptables coexist), verify
+        <code>KubeProxyReplacement: True</code>, and only then delete the DaemonSet and flush <code>KUBE-*</code>
+        rules. Delete-first would have left services untranslated.</div>
+        <div class="src"><span>jul 18 · phase 6.5</span><span class="pill drilled">drilled</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">CRDs must exist when the controller starts, or it never registers.</div>
+        <div class="story">Cilium only registers its Gateway API controller if the CRDs are present at agent start.
+        The install order (CRDs → helm) is now encoded in bootstrap.sh so rebuilds can't get it wrong.</div>
+        <div class="src"><span>jul 18 · phase 6.5</span><span class="pill observed">observed</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">hostNetwork Envoy is the portable answer to "no cloud load balancer".</div>
+        <div class="story">The Gateway binds listener ports directly on every node — the Gateway-API-era version of
+        ADR 003's NodePort stance. Keeping nginx's exact ports (30080/30443) meant the SG rules, DNS record, and
+        every URL survived the cutover unchanged.</div>
+        <div class="src"><span>jul 18 · ADR 005</span><span class="pill decided">decided</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">A hostNetwork Gateway reports PROGRAMMED=False forever. It's fine.</div>
+        <div class="story">There's no LB Service to copy an address from, so the status never turns true.
+        Verify with curl, not status — noted in the runbook so future-us doesn't "fix" a working gateway.</div>
+        <div class="src"><span>jul 18 · phase 6.5</span><span class="pill observed">observed</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">DNS-01 means real certificates with zero inbound ports.</div>
+        <div class="story">Ownership is proven with DNS records on Cloudflare; Let's Encrypt never contacts the
+        cluster. Port 80 was never opened, and re-issuance after a rebuild worked even while the A record still
+        pointed at the dead IP.</div>
+        <div class="src"><span>jul 14 · phase 5</span><span class="pill observed">observed</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Gateway API's role split is real: apps route, infra terminates.</div>
+        <div class="story">The app's HTTPRoute has no TLS config at all — hostname and backend, nothing else. The
+        wildcard cert and ports live on the Gateway. One wildcard cert means a new app is just HTTPRoute + DNS;
+        Phase 7's capstone gets HTTPS for free.</div>
+        <div class="src"><span>jul 18 · phase 6.5</span><span class="pill observed">observed</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ GITOPS ============ -->
+<section id="gitops">
+  <div class="wrap">
+    <h2>GitOps, secrets &amp; operations</h2>
+    <p class="section-sub">The operating model, and what it takes to keep credentials boring.</p>
+    <div class="lessons">
+      <div class="lesson">
+        <div class="claim">Once ArgoCD owns an app, <code>kubectl apply</code> becomes drift.</div>
+        <div class="story">Git holds the desired state; the cluster converges to it, and selfHeal reverts manual
+        edits. The app is no longer deployed <em>by</em> anyone. This is the operating model everything after
+        Phase 5 builds on.</div>
+        <div class="src"><span>jul 14 · phase 5</span><span class="pill observed">observed</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">The GitOps dividend: after a rebuild, apps restore themselves.</div>
+        <div class="story">Drill 1's fresh cluster: ArgoCD came up, read its repo credential, found the Application,
+        pulled main, deployed — Synced/Healthy with zero human involvement. The only manual steps were DNS and
+        noting a new admin password.</div>
+        <div class="src"><span>jul 15 · drill 1</span><span class="pill drilled">drilled</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">"Synced/Healthy" can be a stale revision.</div>
+        <div class="story">ArgoCD polls every ~3 minutes, so a fresh push may not be reflected yet. Force a refresh
+        (the <code>argocd.argoproj.io/refresh</code> annotation) before concluding a push didn't work.</div>
+        <div class="src"><span>jul 18 · phase 6.5</span><span class="pill observed">observed</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">GitHub deploy keys are one-repo-per-key — and the error lies.</div>
+        <div class="story">"Key is already in use" actually meant the first add had succeeded. A dedicated read-only
+        deploy key per repo is the pattern; don't reuse.</div>
+        <div class="src"><span>jul 14 · phase 5</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Secrets go terminal-only, and "roll" is the cheap response to exposure.</div>
+        <div class="story">The Cloudflare API token got pasted into an AI-chat transcript → rolled immediately.
+        Rekeying costs minutes; wondering whether an exposure mattered costs more.</div>
+        <div class="src"><span>jul 14 · phase 5</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Scope API tokens by blast radius, not convenience.</div>
+        <div class="story">Cloudflare tokens scope to whole zones — a leaked in-cluster token means DNS control of
+        everything in that zone. Hence a dedicated low-stakes domain (kahng.dev) instead of the daily-driver zone.</div>
+        <div class="src"><span>jul 14 · phase 5</span><span class="pill decided">decided</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Ownership references garbage-collect more than you deleted.</div>
+        <div class="story">Removing the Ingress from git let ArgoCD prune the live object — and its ingress-shim
+        Certificate followed automatically via ownerRef GC. One orphaned Secret still needed a manual sweep;
+        know which resources own which.</div>
+        <div class="src"><span>jul 18 · phase 6.5</span><span class="pill observed">observed</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">DNS lives outside the cluster — and it's the last manual step.</div>
+        <div class="story">After every rebuild, the wildcard A record must be pointed at the new control-plane IP
+        by hand. Everything else self-restores. Flagged as the next automation candidate (external-dns or a small
+        script on the existing token).</div>
+        <div class="src"><span>jul 15–18</span><span class="pill observed">observed</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ STATE ============ -->
+<section id="state">
+  <div class="wrap">
+    <h2>State &amp; storage</h2>
+    <p class="section-sub">From "a fresh cluster has no StorageClass" to running Postgres on purpose.</p>
+    <div class="lessons">
+      <div class="lesson">
+        <div class="claim">A fresh kubeadm cluster has no StorageClass at all.</div>
+        <div class="story">A PVC just Pends — the storage version of CoreDNS-without-CNI. Nothing provisions
+        volumes until you install something that does.</div>
+        <div class="src"><span>jul 14 · phase 4</span><span class="pill observed">observed</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim"><code>WaitForFirstConsumer</code> keeps PVCs Pending on purpose.</div>
+        <div class="story">The volume can't be placed until a pod schedules, so binding waits for the consumer —
+        Pending is the design, not a failure.</div>
+        <div class="src"><span>jul 14 · phase 4</span><span class="pill observed">observed</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Local storage pins the workload to the data's node.</div>
+        <div class="story">Cordoning postgres-0's node left it Pending while a free node sat idle — the data wasn't
+        there. The scheduler message reads like a tour: PV affinity, taints, unschedulable. Network storage (ebs-sc)
+        follows the pod instead; that contrast is the whole local-vs-network decision in one drill.</div>
+        <div class="src"><span>jul 14 + jul 18 · 7.1</span><span class="pill drilled">drilled</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">etcd snapshots capture Kubernetes objects, not volume contents.</div>
+        <div class="story">A restore with missing volumes is pods pointing at ghosts. Postgres data needs its own
+        backup story (volume snapshots, pg_dump, WAL archiving) — and the drill's snapshot living on the node it
+        protects is fine for a drill, useless for a real node loss.</div>
+        <div class="src"><span>jul 15 · drill 3</span><span class="pill drilled">drilled</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">An etcd restore is time travel for the whole cluster.</div>
+        <div class="story">Proven with markers: a configmap created before the snapshot survived; one created after
+        was erased. On a shared cluster, restoring to fix one thing reverts everyone else's changes too.</div>
+        <div class="src"><span>jul 15 · drill 3</span><span class="pill drilled">drilled</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">StatefulSet guarantees are three separate, observable things.</div>
+        <div class="story">Stable identity (the replacement pod is <em>already named</em> postgres-0), storage that
+        follows the ordinal (the survival row was still there), and per-pod DNS via the headless Service. Each was
+        drilled individually — the primitives Patroni's primary/replica split builds on.</div>
+        <div class="src"><span>jul 18 · 7.1</span><span class="pill drilled">drilled</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Stateless and stateful, side by side, is the fastest way to see the difference.</div>
+        <div class="story">pgbouncer (Deployment): random names, no PVC, reschedules anywhere, replicas cost nothing.
+        postgres-0 (StatefulSet): none of those freedoms. Same phase, both kinds, deliberately contrasted — along
+        with VIP Service (don't care who answers) vs headless (care exactly who answers).</div>
+        <div class="src"><span>jul 18 · 7.2</span><span class="pill decided">decided</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Connection pooling is multiplexing, not magic — and it has a price.</div>
+        <div class="story">Five clients, a pool of two, zero failures: server connections are borrowed per
+        transaction and returned at commit. The trade: session state (SET, LISTEN, advisory locks) dies at
+        transaction end; prepared statements need <code>max_prepared_statements</code>.</div>
+        <div class="src"><span>jul 18 · 7.2</span><span class="pill drilled">drilled</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Pool math multiplies by replica count.</div>
+        <div class="story">Two pgbouncer pods × pool of 2 = up to 4 real backends, and per-pod admin consoles mean
+        no fleet view. Sizing rule: real ceiling = pool_size × pooler replicas. (Fleet-wide visibility is what
+        operators and metrics exporters add.)</div>
+        <div class="src"><span>jul 18 · 7.2</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Secrets can transit to config without touching git or disk.</div>
+        <div class="story">pgbouncer's auth_file — which must hold the plaintext password for SCRAM on both legs —
+        is rendered by an init container into a memory-backed tmpfs from the same Secret postgres uses. Nothing new
+        in git, nothing on disk.</div>
+        <div class="src"><span>jul 18 · 7.2</span><span class="pill decided">decided</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">postgres:18 reorganized its volume layout for in-place major upgrades.</div>
+        <div class="story">Mount <code>/var/lib/postgresql</code> (not <code>.../data</code>); PGDATA lives in a
+        version directory underneath so a future <code>pg_upgrade --link</code> can run inside one volume. Worth
+        knowing before any 7.x touches upgrades.</div>
+        <div class="src"><span>jul 18 · 7.1</span><span class="pill observed">observed</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CRAFT ============ -->
+<section id="craft">
+  <div class="wrap">
+    <h2>Operator craft</h2>
+    <p class="section-sub">Terminal discipline — the small mistakes that cost the most time.</p>
+    <div class="lessons">
+      <div class="lesson">
+        <div class="claim">Long remote operations run under nohup or tmux, never naked in a session.</div>
+        <div class="story">SSH died at the etcd swap (peak memory on a 4GB node) and took the upgrade process with
+        it — it was a child of the session. Recovery worked because kubeadm is idempotent; the habit is the fix.</div>
+        <div class="src"><span>jul 15 · drill 2</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Join commands go on one line, always.</div>
+        <div class="story">A multi-line paste wrapped the CA hash; the shell ran the tail of the hash as its own
+        command and the join used a truncated hash. (Related: never paste live join tokens into git-tracked docs.)</div>
+        <div class="src"><span>jul 14 · phase 2</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Don't pipe long-running commands through <code>tail</code>.</div>
+        <div class="story">The output stays invisible until exit — a 15-minute connectivity test looked hung.
+        Stream to a log file and follow it instead.</div>
+        <div class="src"><span>jul 14 · phase 3</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Read the error output of destructive commands — especially when they "worked".</div>
+        <div class="story"><code>kubectl delete ds kube-proxy cm/kube-proxy</code> errors (can't mix bare and
+        resource/name forms) — the delete silently didn't happen while the iptables flush did. kube-proxy would have
+        recreated its rules; caught only because the output was actually read.</div>
+        <div class="src"><span>jul 18 · phase 6.5</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">One driver at a time.</div>
+        <div class="story">A "stuck" run that's actually in a retry loop resumes the moment you fix the blocker.
+        Starting a second bootstrap alongside it made both fight over apt locks on every node. Fix the blocker,
+        let the original finish.</div>
+        <div class="src"><span>jul 18 · resurrection</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Every quoting layer is a chance to mangle the query.</div>
+        <div class="story">A <code>LIKE</code> pattern with escapes, passed through psql-inside-shell-inside-exec,
+        broke three layers deep. The exact-match form (<code>WHERE query = '...'</code>) survives; prefer it when
+        counting things through nested shells.</div>
+        <div class="src"><span>jul 18 · 7.2</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Interactive CLI wizards need a real TTY.</div>
+        <div class="story"><code>aws configure sso</code> can't run through a non-interactive shell — some tools
+        must be driven from a real terminal, and it's worth knowing which before scripting around them.</div>
+        <div class="src"><span>jul 13</span><span class="pill observed">observed</span></div>
+      </div>
+    </div>
+    <p class="callout">
+      <b>The pattern behind this whole section:</b> almost nothing here is a Kubernetes lesson.
+      It's session lifetime, quoting, pastes, and unread error output — the failure surface of
+      driving remote systems from a terminal. The drills made these cheap to learn; production
+      would have made them expensive.
+    </p>
+  </div>
+</section>
+
+<footer class="site">
+  <div class="wrap">
+    <p>Distilled from <span class="mono">docs/journal/</span> (12 entries, 2026-07-13 → 2026-07-18)
+    and <span class="mono">docs/decisions/</span> (ADR 001–005). Companion page:
+    <span class="mono">docs/architecture.html</span> — the diagrams these lessons were earned on.
+    Current as of Phase 7.2; Patroni (7.3) will add its own entries.</p>
+  </div>
+</footer>
+
+</body>
+</html>
