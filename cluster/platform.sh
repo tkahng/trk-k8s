@@ -93,7 +93,11 @@ if ! kubectl -n argocd get secret repo-trk-k8s > /dev/null 2>&1; then
     echo "  WARNING: $ARGOCD_KEY missing — argocd cannot pull the repo."
   fi
 fi
-kubectl apply -f "$REPO_ROOT"/cluster/gitops/*.yaml > /dev/null
+# one -f per file: `-f a.yaml b.yaml` treats the second file as a stray
+# arg — bit us on the first rebuild after a second Application appeared
+for app in "$REPO_ROOT"/cluster/gitops/*.yaml; do
+  kubectl apply -f "$app" > /dev/null
+done
 echo "  applications applied"
 
 echo

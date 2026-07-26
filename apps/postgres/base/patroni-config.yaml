@@ -1,0 +1,119 @@
+# Phase 7.3 — patroni.yml, hand-written (the 7.2 ethos: the config IS the
+# lesson). Patroni runs as PID 1 in each postgres pod, wraps the database,
+# and holds a leader lease in the DCS — here the Kubernetes API itself
+# (ADR 006).
+#
+# Passwords never enter this file: Patroni reads PATRONI_* env vars as
+# overrides, so the StatefulSet injects identity (pod name, namespace,
+# pod IP) and secrets. What's env-supplied is marked below.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: patroni-config
+data:
+  patroni.yml: |
+    # scope names the Patroni cluster AND its DCS objects: the leader
+    # Endpoints will be `postgres-leader`, dynamic config `postgres-config`.
+    # Every member with this scope in this namespace is one HA cluster.
+    scope: postgres
+    # name: env PATRONI_NAME = the pod name — the StatefulSet ordinal
+    # becomes the Patroni member name, so `patronictl list` reads like
+    # `kubectl get pods`.
+
+    # Patroni's control surface: kubelet probes hit /readiness + /liveness,
+    # patronictl drives switchover/failover through it, and members
+    # health-check EACH OTHER through it during elections.
+    restapi:
+      listen: 0.0.0.0:8008
+      # connect_address: env = $(POD_IP):8008 — what other members are told
+
+    # The DCS — the section that earns this phase. use_endpoints means
+    # Patroni doesn't just RECORD the leader, it directly writes the
+    # Endpoints of the `postgres-leader` Service (which has no selector;
+    # Patroni alone decides what's behind it). Kubernetes routing becomes
+    # the failover mechanism. The leader LEASE is annotations on that same
+    # Endpoints object — watch it flip during the drills:
+    #   kubectl -n postgres get ep postgres-leader -o yaml
+    kubernetes:
+      use_endpoints: true
+      labels:
+        app: postgres
+      scope_label: cluster-name   # defaults, written out for readability
+      role_label: role            # Patroni patches pod labels with the
+                                  # current role — what a future read-only
+                                  # replica Service selects on (needs RBAC
+                                  # pods/patch)
+      ports:                      # must match the leader Service's ports
+        - name: postgres          # so the managed subset is valid
+          port: 5432
+      # namespace + pod_ip: env
+
+    bootstrap:
+      # This block is written to the DCS ONCE, at cluster creation, and
+      # never read from this file again — it lives in `postgres-config`
+      # after that and is edited with `patronictl edit-config` (cluster-
+      # wide). Editing it here later does nothing. Classic gotcha.
+      dcs:
+        # The failover contract (rule of thumb: ttl >= loop_wait +
+        # 2*retry_timeout). Worst case ~30-40s of write unavailability on
+        # a hard leader kill. Also the FENCING clock: a leader that can't
+        # reach the apiserver for ttl seconds demotes itself — the number
+        # to watch in the control-plane-down drill (the exception to
+        # drill 3's "control plane down != outage").
+        ttl: 30
+        loop_wait: 10
+        retry_timeout: 10
+        # bytes; a replica further behind than this is disqualified from
+        # promotion (bounds data loss under async replication — RPO > 0
+        # is the async trade, to be shown with marker rows)
+        maximum_lag_on_failover: 1048576
+        postgresql:
+          use_pg_rewind: true   # a deposed leader with a diverged timeline
+                                # is rewound and rejoins as replica, not
+                                # rebuilt from scratch
+          use_slots: true       # the primary retains WAL for a disconnected
+                                # replica (bounded by wal_keep_size)
+          parameters:
+            wal_level: replica
+            hot_standby: "on"
+            max_wal_senders: 5
+            max_replication_slots: 5
+            wal_keep_size: 128MB
+            password_encryption: scram-sha-256
+      # initdb runs on member 0 only — Patroni owns the lifecycle the
+      # docker entrypoint used to own (no POSTGRES_PASSWORD env anymore).
+      # Member 1 sees a cluster in the DCS and pg_basebackups instead.
+      initdb:
+        - encoding: UTF8
+        - data-checksums
+        - auth-host: scram-sha-256
+        - auth-local: peer
+      # Seeds the INITIAL cluster only (same once-into-DCS caveat).
+      # 10.244.0.0/16 = the pod CIDR: pgbouncer, replicas, and drills all
+      # connect from pod IPs.
+      pg_hba:
+        - local all all peer
+        - host all all 10.244.0.0/16 scram-sha-256
+        - host replication replicator 10.244.0.0/16 scram-sha-256
+
+    postgresql:
+      listen: 0.0.0.0:5432
+      # connect_address: env = $(POD_IP):5432 — advertised for replication
+      # The 7.1 lesson carried over: version dir under the mount, so a
+      # future pg_upgrade --link can run inside one volume.
+      data_dir: /var/lib/postgresql/18/docker
+      bin_dir: /usr/lib/postgresql/18/bin
+      pgpass: /tmp/pgpass
+      authentication:
+        superuser:
+          username: postgres
+          # password: env PATRONI_SUPERUSER_PASSWORD (postgres-credentials)
+        replication:
+          username: replicator   # created by Patroni during bootstrap;
+          # password: env PATRONI_REPLICATION_PASSWORD (new Secret key)
+        # rewind: omitted — Patroni falls back to the superuser
+      parameters: {}
+
+    # Per-member knobs (nofailover, noloadbalance, ...). Empty, but worth
+    # knowing this is where you'd exclude a member from elections.
+    tags: {}
