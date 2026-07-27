@@ -31,8 +31,16 @@ spec:
   template:
     metadata:
       labels:
-        app: postgres    # patroni finds peers by this (kubernetes.labels)
-                         # and ADDS cluster-name= and role= labels itself
+        app: postgres
+        # Required for member discovery, found via source dive: Patroni's
+        # pod selector is kubernetes.labels PLUS scope_label=scope
+        # (cluster-name=postgres), appended automatically — but Patroni
+        # only ever STAMPS the role label on pods, never this one. Without
+        # it the member watch matches zero pods: elections still work (the
+        # lock write needs no member list) but a replica can't find the
+        # leader's conn_url to clone from — it fails in 1ms with a bare
+        # "failed to bootstrap from leader", wiping and retrying forever.
+        cluster-name: postgres
     spec:
       serviceAccountName: patroni   # the DCS is the k8s API — see rbac
       # Patroni runs as the image's postgres user (uid 999, verified);
