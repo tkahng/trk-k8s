@@ -22,6 +22,31 @@ Secrets are file-driven, never in git:
 - Cloudflare token: `~/.config/trk-k8s/cloudflare-token` (chmod 600)
 - ArgoCD deploy key: `~/.ssh/argocd_trk_k8s`
 
+## Resuming a session after `make destroy`
+
+The between-sessions habit is teardown, so "pick up where I left off" is:
+
+    make up         # machines exist (check-ip preflight runs automatically)
+    make bootstrap  # machines become a cluster
+    make platform   # cluster becomes useful; ArgoCD pulls the apps back
+
+NOT `make rebuild` — that starts with a destroy, which is for blowing away
+a *running* cluster, not resuming a dead one. Each step is idempotent:
+if one fails partway (transient apiserver reset, SSH race), re-run it.
+
+Two things to keep in mind when resuming:
+
+- **The cluster restores to what GIT says, not where your session left
+  off.** Uncommitted manifests, unpushed branches, and anything mid-phase
+  in the working tree are invisible to ArgoCD. Resuming mid-phase means
+  the cluster comes back at the last *pushed* state — usually what you
+  want, occasionally a surprise.
+- **PV data died with the machines** (local-path = node disk; drill 3:
+  etcd snapshots don't cover it either). Anything stateful restarts
+  empty until the Postgres backup story lands (Phase 7).
+
+Then the post-rebuild manual steps below.
+
 ## Post-rebuild manual steps (DNS is outside the cluster)
 
 1. Cloudflare: update `*.k8s.kahng.dev` A record → new control-plane
