@@ -3,6 +3,9 @@ kind: Kustomization
 resources:
   - statefulset.yaml
   - service.yaml
+  - patroni-config.yaml
+  - patroni-rbac.yaml
+  - patroni-services.yaml
   - pgbouncer-config.yaml
   - pgbouncer-deployment.yaml
   - pgbouncer-service.yaml

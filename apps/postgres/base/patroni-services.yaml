@@ -1,0 +1,40 @@
+# Phase 7.3 — the two routing Services Patroni drives. Contrast with
+# service.yaml (the headless governing Service, which still exists for
+# per-pod DNS): these two answer "who should I talk to", not "who exists".
+#
+# postgres-leader has NO selector — deliberately. Patroni itself writes
+# this Service's Endpoints (use_endpoints mode): the current primary's
+# pod IP, and nothing else, ever. Kubernetes routing IS the failover
+# mechanism — the election result and the traffic flip are one atomic
+# write. pgbouncer points here; apps keep pointing at pgbouncer.
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-leader
+  labels:
+    app: postgres
+    cluster-name: postgres
+spec:
+  ports:
+    - port: 5432
+      name: postgres
+---
+# postgres-replica: ordinary label-selector Service, but the role label
+# is maintained by PATRONI, not by us — it stamps role=primary|replica
+# on pods as elections happen (Patroni 4 naming; 3.x said "master").
+# Read-only traffic goes here; empty until a replica exists and healthy
+# through failovers because the labels move with the roles.
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-replica
+  labels:
+    app: postgres
+    cluster-name: postgres
+spec:
+  selector:
+    app: postgres
+    role: replica
+  ports:
+    - port: 5432
+      name: postgres

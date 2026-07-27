@@ -1,70 +1,119 @@
-# Phase 7.1 — a single Postgres, by hand. The point is to see what a
-# StatefulSet actually guarantees before any operator hides it:
-#   - stable identity: the pod is postgres-0, always, across reschedules
-#     (a Deployment would mint postgres-7d9f8-xyz12 each time)
-#   - storage follows the pod: volumeClaimTemplates mints a PVC PER
-#     ORDINAL (data-postgres-0) and rebinds it to the same ordinal on
-#     every restart — delete the pod, the data comes back
-#   - ordered, one-at-a-time rollout — irrelevant at replicas:1, load-
-#     bearing the moment 7.3 adds replicas
+# Phase 7.1 → 7.3. Was: a single postgres:18, the StatefulSet-guarantees
+# lab. Now: two Patroni members — same guarantees (stable identity, PVC
+# per ordinal, per-pod DNS), plus leader election on the k8s API (ADR
+# 006). Patroni is PID 1 and owns everything the docker entrypoint used
+# to own: initdb on the first member, pg_basebackup on the second, and
+# the answer to "who is the leader".
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: postgres
 spec:
   serviceName: postgres   # the headless Service that owns pod DNS
-  replicas: 1
+  # Two members, one per worker (the cp is tainted). Two is sound with
+  # the k8s-API DCS: members don't vote among themselves — quorum lives
+  # in the control plane's etcd. OrderedReady (the default) means
+  # postgres-1 waits for postgres-0 to be Ready = bootstrap then clone,
+  # observable in order.
+  replicas: 2
   selector:
     matchLabels:
       app: postgres
   template:
     metadata:
       labels:
-        app: postgres
+        app: postgres    # patroni finds peers by this (kubernetes.labels)
+                         # and ADDS cluster-name= and role= labels itself
     spec:
+      serviceAccountName: patroni   # the DCS is the k8s API — see rbac
+      # Patroni runs as the image's postgres user (uid 999, verified);
+      # there is no root entrypoint to chown the volume anymore, so
+      # fsGroup makes the PVC writable by the group instead.
+      securityContext:
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
       containers:
         - name: postgres
-          # postgres:18 changed the volume layout: mount /var/lib/postgresql
-          # (not .../data) — PGDATA lives in a version dir under it
-          # (/var/lib/postgresql/18/docker), so a future major upgrade can
-          # pg_upgrade --link inside one volume.
-          image: postgres:18
+          image: ghcr.io/tkahng/trk-k8s-patroni:18-4.1.4
           ports:
             - containerPort: 5432
               name: postgres
+            - containerPort: 8008
+              name: patroni
           env:
-            - name: POSTGRES_PASSWORD
+            # Identity: the pod name becomes the Patroni member name, so
+            # `patronictl list` reads like `kubectl get pods`.
+            - name: PATRONI_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: PATRONI_KUBERNETES_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: PATRONI_KUBERNETES_POD_IP
+              value: $(POD_IP)
+            # What gets ADVERTISED to the other members / replicas —
+            # must be this pod's IP, hence env not patroni.yml.
+            - name: PATRONI_RESTAPI_CONNECT_ADDRESS
+              value: $(POD_IP):8008
+            - name: PATRONI_POSTGRESQL_CONNECT_ADDRESS
+              value: $(POD_IP):5432
+            # Secrets stay out of git AND out of patroni.yml — env
+            # overrides (no POSTGRES_PASSWORD anymore; the entrypoint
+            # that consumed it is gone).
+            - name: PATRONI_SUPERUSER_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: postgres-credentials   # terminal-only, never git
+                  name: postgres-credentials
                   key: password
+            - name: PATRONI_REPLICATION_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: replication-password
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql
+            - name: patroni-config
+              mountPath: /etc/patroni
+              readOnly: true
           resources:
             requests:
               cpu: 100m
               memory: 256Mi
             limits:
               memory: 1Gi
+          # Probes hit Patroni's REST API, not pg_isready: readiness =
+          # "this member is a healthy primary or streaming replica",
+          # liveness = "the Patroni daemon itself responds". A demoted
+          # or rewinding member goes NotReady without being killed.
           readinessProbe:
-            exec:
-              command: ["pg_isready", "-U", "postgres", "-h", "127.0.0.1"]
+            httpGet:
+              path: /readiness
+              port: 8008
             initialDelaySeconds: 5
-            periodSeconds: 5
+            periodSeconds: 10
           livenessProbe:
-            exec:
-              command: ["pg_isready", "-U", "postgres", "-h", "127.0.0.1"]
+            httpGet:
+              path: /liveness
+              port: 8008
             initialDelaySeconds: 30
             periodSeconds: 10
-  # The other half of the stateful story. No storageClassName = the
-  # default class = local-path (ADR 003 portability), which means a
-  # hostPath on whichever node the pod FIRST lands on — the PV's node
-  # affinity then pins postgres-0 to that node forever. Deliberate:
-  # 7.1's drill makes that trade visible (kill the node and the pod is
-  # Pending, not rescheduled). ebs-sc would follow the pod instead;
-  # etcd snapshots do NOT cover this data (drill 3 lesson) — Postgres
-  # backup is its own story, coming in this phase.
+      volumes:
+        - name: patroni-config
+          configMap:
+            name: patroni-config
+  # Unchanged from 7.1: PVC per ordinal, local-path default class, the
+  # node-pin trade drilled then. NEW consequence with two members:
+  # replication syncs the data, not storage — losing a worker now loses
+  # one REPLICA, not the database. etcd snapshots still don't cover PV
+  # data; the real backup story is still ahead.
   volumeClaimTemplates:
     - metadata:
         name: data

@@ -1,0 +1,47 @@
+# Phase 7.3 — the price of using the Kubernetes API as the DCS (ADR 006):
+# Patroni must be allowed to write to it. Namespace-scoped Role, nothing
+# cluster-wide — Patroni only touches objects in its own namespace.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: patroni
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: patroni
+rules:
+  # The DCS itself: the leader lease lives as annotations on the
+  # postgres-leader Endpoints; postgres-config / -failover / -sync are
+  # Endpoints too (use_endpoints mode). create is needed at bootstrap,
+  # patch/update on every lease renewal (every loop_wait seconds).
+  - apiGroups: [""]
+    resources: [endpoints]
+    verbs: [get, list, watch, create, patch, update, delete]
+  # Patroni stamps role=primary|replica on its own pods (role_label) —
+  # that's what the postgres-replica Service selects on.
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch, patch, update]
+  # Reads the leader Service it manages the Endpoints of.
+  - apiGroups: [""]
+    resources: [services]
+    verbs: [get, list, watch, create, patch, update]
+  # Not used in use_endpoints mode, but Patroni falls back to ConfigMaps
+  # if endpoints access fails — granting both keeps the failure mode
+  # loud (RBAC denial in logs) instead of a silent mode switch.
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get, list, watch, create, patch, update, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: patroni
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: patroni
+subjects:
+  - kind: ServiceAccount
+    name: patroni

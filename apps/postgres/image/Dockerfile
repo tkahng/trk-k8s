@@ -13,8 +13,8 @@ RUN apt-get update \
 
 RUN python3 -m venv /opt/patroni \
  && /opt/patroni/bin/pip install --no-cache-dir \
-      'patroni[kubernetes]' \
-      'psycopg[binary]'
+      'patroni[kubernetes]==4.1.4' \
+      'psycopg[binary]==3.3.4'
 ENV PATH="/opt/patroni/bin:$PATH"
 
 # Patroni is PID 1 and drives initdb/pg_ctl itself — the stock

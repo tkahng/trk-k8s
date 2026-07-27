@@ -66,16 +66,31 @@ echo "  gateway applied"
 
 echo "### postgres credentials (phase 7 — secret from local file, never git)"
 PG_PASS_FILE="${PG_PASS_FILE:-$HOME/.config/trk-k8s/postgres-password}"
+# 7.3: Patroni needs a second credential — the replication user replicas
+# dial the leader with. Same pattern, second file; generated once if absent
+# (nobody types this password, only Patroni uses it).
+PG_REPL_FILE="${PG_REPL_FILE:-$HOME/.config/trk-k8s/postgres-replication-password}"
+if [ ! -f "$PG_REPL_FILE" ]; then
+  (umask 077 && openssl rand -base64 24 > "$PG_REPL_FILE")
+  echo "  generated $PG_REPL_FILE"
+fi
 kubectl get ns postgres > /dev/null 2>&1 || kubectl create ns postgres > /dev/null
 if ! kubectl -n postgres get secret postgres-credentials > /dev/null 2>&1; then
   if [ -f "$PG_PASS_FILE" ]; then
     kubectl -n postgres create secret generic postgres-credentials \
-      --from-file=password="$PG_PASS_FILE" > /dev/null
+      --from-file=password="$PG_PASS_FILE" \
+      --from-file=replication-password="$PG_REPL_FILE" > /dev/null
     echo "  postgres-credentials secret created from $PG_PASS_FILE"
   else
     echo "  WARNING: no postgres-credentials secret and no $PG_PASS_FILE —"
     echo "  postgres will sit in CreateContainerConfigError until it exists."
   fi
+elif ! kubectl -n postgres get secret postgres-credentials \
+    -o jsonpath='{.data.replication-password}' 2>/dev/null | grep -q .; then
+  # secret predates 7.3 — add the key without recreating (live clusters)
+  kubectl -n postgres patch secret postgres-credentials -p \
+    "{\"data\":{\"replication-password\":\"$(base64 < "$PG_REPL_FILE" | tr -d '\n')\"}}" > /dev/null
+  echo "  replication-password key added to existing secret"
 fi
 
 echo "### argocd + repo credential + applications"
