@@ -15,10 +15,16 @@ spec:
                                # service.yaml for the collision story)
   # Two members, one per worker (the cp is tainted). Two is sound with
   # the k8s-API DCS: members don't vote among themselves — quorum lives
-  # in the control plane's etcd. OrderedReady (the default) means
-  # postgres-1 waits for postgres-0 to be Ready = bootstrap then clone,
-  # observable in order.
+  # in the control plane's etcd.
   replicas: 2
+  # Parallel, NOT the OrderedReady default — learned via deadlock: with
+  # OrderedReady, if the initialized data lives on ordinal 1 (post-
+  # failover, or member 0's volume lost), postgres-0 waits for a leader
+  # to clone from while postgres-1 — the leader-to-be — waits for
+  # postgres-0 to be Ready. Patroni has its own ordering (the DCS
+  # initialize-key CAS decides who bootstraps); the StatefulSet must not
+  # impose a second one.
+  podManagementPolicy: Parallel
   selector:
     matchLabels:
       app: postgres
