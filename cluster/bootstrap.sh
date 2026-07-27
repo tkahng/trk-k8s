@@ -96,6 +96,28 @@ sed -i '' "s|https://$cp_private:6443|https://$cp_public:6443|" "$REPO_ROOT/kube
   || sed -i "s|https://$cp_private:6443|https://$cp_public:6443|" "$REPO_ROOT/kubeconfig"
 export KUBECONFIG="$REPO_ROOT/kubeconfig"
 
+echo "### Step 4.5: wait for the apiserver to be STABLE (not just up)"
+# kubeadm init returning != apiserver settled — on 2-vCPU nodes the first
+# minutes see etcd stalls that reset/timeout the very next helm install
+# (bit us on both post-destroy resumes: 2026-07-25 reset, 2026-07-27
+# timeout). Same family as Step 0's wait-for-SSH: demand N consecutive
+# healthy answers, not one lucky one.
+stable=0
+for i in $(seq 1 60); do
+  if kubectl get --raw /readyz > /dev/null 2>&1; then
+    stable=$((stable + 1))
+    [ "$stable" -ge 5 ] && break
+  else
+    stable=0
+  fi
+  sleep 5
+done
+if [ "$stable" -lt 5 ]; then
+  echo "  ERROR: apiserver never held 5 consecutive healthy checks (5s apart)" >&2
+  exit 1
+fi
+echo "  apiserver stable ($stable consecutive OK)"
+
 echo "### Step 5: install Cilium (CNI + Gateway API)"
 # Gateway API CRDs MUST exist before Cilium starts with gatewayAPI.enabled
 # (Phase 6.5) — the agent only registers its controller if it sees them.
