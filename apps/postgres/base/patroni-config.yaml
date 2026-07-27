@@ -12,8 +12,12 @@ metadata:
   name: patroni-config
 data:
   patroni.yml: |
-    # scope names the Patroni cluster AND its DCS objects: the leader
-    # Endpoints will be `postgres-leader`, dynamic config `postgres-config`.
+    # scope names the Patroni cluster AND its DCS objects. Gotcha learned
+    # in the field: in use_endpoints mode the LEADER object is the
+    # Endpoints named after the scope ALONE (`postgres` — kubernetes.py
+    # strips '-leader'); only the others keep suffixes (`postgres-config`,
+    # `postgres-failover`, `postgres-sync`). So the scope name doubles as
+    # the leader Service name, and nothing else may claim it.
     # Every member with this scope in this namespace is one HA cluster.
     scope: postgres
     # name: env PATRONI_NAME = the pod name — the StatefulSet ordinal
@@ -29,11 +33,11 @@ data:
 
     # The DCS — the section that earns this phase. use_endpoints means
     # Patroni doesn't just RECORD the leader, it directly writes the
-    # Endpoints of the `postgres-leader` Service (which has no selector;
-    # Patroni alone decides what's behind it). Kubernetes routing becomes
-    # the failover mechanism. The leader LEASE is annotations on that same
-    # Endpoints object — watch it flip during the drills:
-    #   kubectl -n postgres get ep postgres-leader -o yaml
+    # Endpoints of the scope-named `postgres` Service (which has no
+    # selector; Patroni alone decides what's behind it). Kubernetes
+    # routing becomes the failover mechanism. The leader LEASE is
+    # annotations on that same Endpoints object — watch it flip:
+    #   kubectl -n postgres get ep postgres -o yaml
     kubernetes:
       use_endpoints: true
       labels:

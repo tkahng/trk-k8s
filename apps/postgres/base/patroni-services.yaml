@@ -2,15 +2,17 @@
 # service.yaml (the headless governing Service, which still exists for
 # per-pod DNS): these two answer "who should I talk to", not "who exists".
 #
-# postgres-leader has NO selector — deliberately. Patroni itself writes
-# this Service's Endpoints (use_endpoints mode): the current primary's
-# pod IP, and nothing else, ever. Kubernetes routing IS the failover
-# mechanism — the election result and the traffic flip are one atomic
+# The leader Service is named `postgres` — the SCOPE, exactly — because
+# in use_endpoints mode Patroni writes the leader lease + primary IP to
+# the Endpoints named after the scope (source: kubernetes.py leader_path
+# strips '-leader'; only -config/-failover/-sync keep suffixes). It has
+# NO selector — deliberately: Patroni is the sole author of what's
+# behind it, so the election result and the traffic flip are one atomic
 # write. pgbouncer points here; apps keep pointing at pgbouncer.
 apiVersion: v1
 kind: Service
 metadata:
-  name: postgres-leader
+  name: postgres
   labels:
     app: postgres
     cluster-name: postgres

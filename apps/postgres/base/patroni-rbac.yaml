@@ -12,9 +12,10 @@ metadata:
   name: patroni
 rules:
   # The DCS itself: the leader lease lives as annotations on the
-  # postgres-leader Endpoints; postgres-config / -failover / -sync are
-  # Endpoints too (use_endpoints mode). create is needed at bootstrap,
-  # patch/update on every lease renewal (every loop_wait seconds).
+  # scope-named Endpoints (`postgres` — use_endpoints strips '-leader');
+  # postgres-config / -failover / -sync are Endpoints too. create is
+  # needed at bootstrap, patch/update on every lease renewal (every
+  # loop_wait seconds).
   - apiGroups: [""]
     resources: [endpoints]
     verbs: [get, list, watch, create, patch, update, delete]

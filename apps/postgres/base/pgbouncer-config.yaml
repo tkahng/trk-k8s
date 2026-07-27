@@ -14,12 +14,13 @@ metadata:
 data:
   pgbouncer.ini: |
     [databases]
-    ; 7.3: the upstream is the Patroni-managed LEADER Service, not a pod.
+    ; 7.3: the upstream is the Patroni-managed LEADER Service (named
+    ; `postgres` = the scope; use_endpoints convention), not a pod.
     ; Patroni writes that Service's Endpoints on every election, so a
     ; failover moves pgbouncer's target without touching this file —
     ; the 7.2 indirection (apps -> pgbouncer) now has a second hop
     ; (pgbouncer -> whoever leads).
-    * = host=postgres-leader.postgres.svc.cluster.local port=5432
+    * = host=postgres.postgres.svc.cluster.local port=5432
 
     [pgbouncer]
     listen_addr = 0.0.0.0

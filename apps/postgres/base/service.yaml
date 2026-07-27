@@ -1,14 +1,22 @@
 # Headless (clusterIP: None) "governing" Service — it exists to give
 # StatefulSet pods stable per-pod DNS, not to load-balance:
-#   postgres-0.postgres.<ns>.svc.cluster.local  → always pod ordinal 0
+#   postgres-0.postgres-pods.<ns>.svc.cluster.local  → always pod ordinal 0
 # Contrast with hello's normal Service, where DNS resolves to a VIP and
 # any replica answers. Databases care WHICH instance answers (7.3:
 # primary vs replica), so per-pod names are the primitive everything
-# else builds on. Clients get a pooled entrypoint in 7.2 (PgBouncer).
+# else builds on.
+#
+# Named postgres-PODS, not postgres, since 7.3 — learned in the field:
+# in use_endpoints mode Patroni's leader object is the Endpoints named
+# after the SCOPE alone (kubernetes.py strips '-leader'), i.e.
+# Endpoints/postgres. A selector Service with that name means the
+# endpoints controller and Patroni fight over one object — Patroni loses
+# the CAS every cycle ("Could not take out TTL lock"), nobody leads.
+# The scope-named Service must be the selector-less leader Service.
 apiVersion: v1
 kind: Service
 metadata:
-  name: postgres
+  name: postgres-pods
 spec:
   clusterIP: None
   selector:

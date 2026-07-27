@@ -51,17 +51,32 @@ drill 3's "control plane down ≠ outage"; see ADR 006).
 ## Election, on the Kubernetes API
 
 With `use_endpoints: true`, the lease is annotations on the
-`postgres-leader` **Endpoints** object, and Patroni also writes the
-leader pod's IP into its subsets. The `postgres-leader` Service has no
-selector — Patroni is the sole author of what's behind it. So the
-election result *is* the routing change, in one atomic write.
+**Endpoints named after the scope alone** — `postgres`, not
+`postgres-leader`: Patroni's `kubernetes.py` strips the `-leader`
+suffix in this mode (only `-config`/`-failover`/`-sync` keep theirs) —
+and Patroni also writes the leader pod's IP into its subsets. The
+matching scope-named Service has no selector — Patroni is the sole
+author of what's behind it. So the election result *is* the routing
+change, in one atomic write.
+
+**The collision gotcha (found the hard way):** the scope name doubles
+as the leader Service name, so nothing else may claim it. Our headless
+governing Service was originally named `postgres` — a selector Service,
+whose Endpoints the endpoints controller owns. Patroni lost the CAS to
+the controller every cycle, logged only `Could not take out TTL lock`
+(no error — the write "succeeded" and was immediately reverted), and
+after bootstrap **fenced itself** (`Demoting self (immediate-nolock)`),
+leaving a cluster with an initialize key and no leader. Fix: headless
+Service renamed `postgres-pods`; `postgres` became the selector-less
+leader Service. This is why Zalando clusters name the primary Service
+after the cluster itself.
 
 Atomicity comes from Kubernetes optimistic concurrency: two candidates
 race to update the annotation; the apiserver (backed by the control
 plane's etcd — where the consensus really lives) accepts exactly one.
 Compare-and-swap, delegated. Watch it live:
 
-    kubectl -n postgres get ep postgres-leader -o yaml   # holder + renewals
+    kubectl -n postgres get ep postgres -o yaml          # holder + renewals
     kubectl get pods -n postgres -L role                 # patroni-stamped roles
 
 `role_label` is the second mechanism: Patroni stamps each pod
@@ -94,7 +109,7 @@ for scope `postgres`?**
   `connect_address`, start streaming, loop every 10s.
 - **Leader vanishes** → lease expires within `ttl` → survivors compare
   WAL positions via each other's REST APIs (:8008) → the freshest
-  writes itself into `postgres-leader` (apiserver arbitrates the race)
+  writes itself into the scope-named Endpoints (apiserver arbitrates the race)
   → promotes. pgbouncer's next transaction lands on the new primary
   with zero config change — the 7.2 indirection paying off.
 

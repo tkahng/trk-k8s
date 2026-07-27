@@ -9,7 +9,10 @@ kind: StatefulSet
 metadata:
   name: postgres
 spec:
-  serviceName: postgres   # the headless Service that owns pod DNS
+  serviceName: postgres-pods   # the headless Service that owns pod DNS
+                               # (renamed in 7.3: `postgres` is now the
+                               # Patroni-managed leader Service — see
+                               # service.yaml for the collision story)
   # Two members, one per worker (the cp is tainted). Two is sound with
   # the k8s-API DCS: members don't vote among themselves — quorum lives
   # in the control plane's etcd. OrderedReady (the default) means
