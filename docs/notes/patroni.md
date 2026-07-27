@@ -71,6 +71,21 @@ Service renamed `postgres-pods`; `postgres` became the selector-less
 leader Service. This is why Zalando clusters name the primary Service
 after the cluster itself.
 
+**The scope-label gotcha (same evening):** Patroni finds its member
+pods with `kubernetes.labels` **plus `scope_label=scope` appended
+automatically** (`kubernetes.py:756`) — but it only ever stamps the
+*role* label on pods, never the scope label. Pods missing
+`cluster-name=<scope>` are invisible to the member watch: elections
+still work (the lock write needs no member list), but a replica can't
+resolve the leader's `conn_url` — `create_replica` filters basebackup
+out of an empty method list and fails in ~1ms with a bare "failed to
+bootstrap from leader". The pod template must carry the scope label
+itself. Both gotchas are journaled in
+`2026-07-26-phase7.3-patroni-bootstrap.md`, along with the third
+(StatefulSet `OrderedReady` deadlocks when the initialized data lives
+on a higher ordinal — Patroni owns bootstrap ordering, so
+`podManagementPolicy: Parallel`).
+
 Atomicity comes from Kubernetes optimistic concurrency: two candidates
 race to update the annotation; the apiserver (backed by the control
 plane's etcd — where the consensus really lives) accepts exactly one.
