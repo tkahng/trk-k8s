@@ -140,11 +140,12 @@ confidently. Deliberate progression:
 2. ✅ (2026-07-18) **PgBouncer** in front — connection pooling, why
    Postgres needs it; drilled: 5 clients / pool of 2 / all succeed;
    Deployment-vs-StatefulSet and VIP-vs-headless contrasts
-3. HA with **Patroni** — leader election, automatic failover, and the DCS
-   (distributed consensus store) choice: **ZooKeeper**/etcd classically, or
-   the Kubernetes API itself when running in-cluster (worth comparing —
-   running ZooKeeper explicitly teaches the consensus layer that k8s
-   otherwise hides)
+3. ✅ (2026-07-28) HA with **Patroni** — k8s-API DCS + custom image
+   (ADR 006); four bootstrap traps journaled (2026-07-26), five drills
+   journaled (2026-07-28): switchover, layered-recovery non-event, hard
+   failover, rewind-free rejoin, apiserver-fence + the pooler gap.
+   Stretch parked: synchronous_mode, real async-loss demo, ZooKeeper
+   comparison lab, pooler callbacks
 4. Operators that package all of the above (CloudNativePG, Zalando's
    postgres-operator — the latter is Patroni underneath) — build by hand
    first, then appreciate what the operator automates
