@@ -20,10 +20,25 @@ helm_i() { # helm_i <release> <ns> <chart> [args...]
   local release="$1" ns="$2" chart="$3"; shift 3
   if helm status "$release" -n "$ns" > /dev/null 2>&1; then
     echo "  $release already installed"
-  else
-    helm install "$release" "$chart" --namespace "$ns" --create-namespace "$@" > /dev/null
-    echo "  $release installed"
+    return 0
   fi
+  # Retry loop: on 2-vCPU nodes etcd fsyncs share the disk with image
+  # pulls, and the install burst can stall apiserver writes past their
+  # timeout (bit three resume sessions in a row — ebs-csi, cert-manager,
+  # argocd). A failed install may leave a half-written release record;
+  # uninstall it before retrying or the retry hits "name already in use".
+  local attempt
+  for attempt in 1 2 3; do
+    if helm install "$release" "$chart" --namespace "$ns" --create-namespace "$@" > /dev/null; then
+      echo "  $release installed"
+      return 0
+    fi
+    echo "  $release install failed (attempt $attempt/3) — cleaning up, retrying in 20s"
+    helm uninstall "$release" -n "$ns" > /dev/null 2>&1 || true
+    sleep 20
+  done
+  echo "  ERROR: $release failed after 3 attempts" >&2
+  return 1
 }
 
 echo "### storage: local-path (default StorageClass)"
