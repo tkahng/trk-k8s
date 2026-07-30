@@ -24,3 +24,11 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+      # CNPG's Cluster/Pooler CRDs are megabyte-scale; client-side apply
+      # writes the whole object into the last-applied-configuration
+      # annotation and dies on the 256KiB annotation cap. Server-side
+      # apply keeps field ownership in the apiserver instead — no
+      # annotation, no cap. (Found live: operator crash-looped on
+      # "no matches for kind Cluster" because its two biggest CRDs
+      # never applied.)
+      - ServerSideApply=true
