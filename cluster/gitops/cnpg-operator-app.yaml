@@ -1,0 +1,26 @@
+# ArgoCD Application: the CloudNativePG OPERATOR (Phase 7.4).
+# New pattern for this repo: the source is a public Helm chart repo, not
+# our git repo — ArgoCD renders the chart itself, so the operator gets
+# version-pinned GitOps management without vendoring manifests. (helm_i
+# in platform.sh is the imperative cousin; this is how addons should
+# arrive once ArgoCD exists — app-of-apps someday.)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cnpg-operator
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://cloudnative-pg.github.io/charts
+    chart: cloudnative-pg
+    targetRevision: 0.29.0   # operator 1.30.0, checked 2026-07-29
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cnpg-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

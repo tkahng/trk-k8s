@@ -1,0 +1,34 @@
+# ArgoCD Application: the CNPG-managed Postgres cluster (Phase 7.4).
+# Lives alongside the hand-built apps/postgres (7.1-7.3), which stays as
+# the reference implementation the operator is judged against.
+#
+# Ordering: this app's CRs (Cluster/Pooler) are unknown kinds until the
+# cnpg-operator app has installed the CRDs — first sync may fail. The
+# retry block makes ArgoCD converge on its own instead of needing a
+# human to press sync twice.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: postgres-cnpg
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: git@github.com:tkahng/trk-k8s.git
+    targetRevision: main
+    path: apps/postgres-cnpg/overlays/dev
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: postgres-cnpg
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 10
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 3m

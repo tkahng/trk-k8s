@@ -1,0 +1,24 @@
+# Phase 7.4 — the answer to 7.3's find-of-the-day, the POOLER GAP.
+# In 7.3 the database finished failing over a full minute before the app
+# path recovered, because our hand-run pgbouncer's pooled connections
+# stayed pinned to the demoted primary (and RECONNECT through the VIP
+# was a per-pod lottery). This CRD is the operator absorbing that whole
+# problem class: it deploys pgbouncer, wires auth via auth_query with
+# generated credentials (no userlist tmpfs), tracks the rw endpoint, and
+# coordinates the pools on failover. The fence drill will test exactly
+# that promise.
+apiVersion: postgresql.cnpg.io/v1
+kind: Pooler
+metadata:
+  name: pg-pooler-rw
+spec:
+  cluster:
+    name: pg
+  instances: 2
+  type: rw
+  pgbouncer:
+    poolMode: transaction
+    parameters:
+      # mirror the 7.2 hand-written ini so drill numbers compare 1:1
+      default_pool_size: "2"
+      max_client_conn: "200"

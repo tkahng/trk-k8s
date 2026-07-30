@@ -1,0 +1,6 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: postgres-cnpg
+resources:
+  - ../../base
+# Nothing to patch yet — dev sizing overrides would land here.
