@@ -5,6 +5,7 @@ import (
 
 	"github.com/pulumi/pulumi-aws/sdk/v7/go/aws/ec2"
 	"github.com/pulumi/pulumi-aws/sdk/v7/go/aws/iam"
+	"github.com/pulumi/pulumi-aws/sdk/v7/go/aws/s3"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/config"
 )
@@ -163,6 +164,56 @@ func main() {
 		if err != nil {
 			return err
 		}
+
+		// Phase 7.4 backup lab: WAL archiving + base backups need object
+		// storage. This is the capability NEITHER postgres stack has had so
+		// far — drill 3 proved etcd snapshots don't cover PV data, and 7.1
+		// noted `pulumi destroy` takes the database with it. Barman (inside
+		// CNPG) writes here.
+		//
+		// Bucket lives in the infra layer because it must OUTLIVE the
+		// cluster: the whole point is restoring into a cluster that didn't
+		// exist when the backup was taken. `pulumi destroy` still removes it
+		// (ForceDestroy) — deliberate for a lab, wrong for production.
+		backupBucket, err := s3.NewBucketV2(ctx, "k8s-pg-backups", &s3.BucketV2Args{
+			BucketPrefix: pulumi.String("trk-k8s-pg-backups-"),
+			ForceDestroy: pulumi.Bool(true),
+			Tags:         pulumi.StringMap{"cluster": pulumi.String("trk-k8s")},
+		})
+		if err != nil {
+			return err
+		}
+
+		// Credentials via the node instance profile — the same IMDS path the
+		// EBS CSI driver uses (and the same one that taught us the
+		// hop-limit-3 lesson in Phase 4). No access keys in the cluster.
+		//
+		// TRADE-OFF to record in ADR 007: instance-profile identity is
+		// NODE-scoped, so any pod on any node can reach this bucket. IRSA
+		// (per-ServiceAccount scoping) is the correct answer and needs an
+		// OIDC provider kubeadm doesn't create by default — a lab of its
+		// own, deliberately deferred.
+		_, err = iam.NewRolePolicy(ctx, "k8s-node-pg-backups", &iam.RolePolicyArgs{
+			Role: nodeRole.Name,
+			Policy: backupBucket.Arn.ApplyT(func(arn string) string {
+				return fmt.Sprintf(`{
+					"Version": "2012-10-17",
+					"Statement": [{
+						"Effect": "Allow",
+						"Action": [
+							"s3:ListBucket", "s3:GetBucketLocation",
+							"s3:GetObject", "s3:PutObject", "s3:DeleteObject",
+							"s3:AbortMultipartUpload", "s3:ListMultipartUploadParts"
+						],
+						"Resource": ["%s", "%s/*"]
+					}]
+				}`, arn, arn)
+			}).(pulumi.StringOutput),
+		})
+		if err != nil {
+			return err
+		}
+		ctx.Export("pg-backup-bucket", backupBucket.Bucket)
 
 		nodeProfile, err := iam.NewInstanceProfile(ctx, "k8s-node", &iam.InstanceProfileArgs{
 			Name: pulumi.String("k8s-node"),
