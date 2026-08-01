@@ -276,11 +276,13 @@
       could be rebuilt from nothing in about eight minutes.
     </p>
     <div class="chips">
-      <span class="chip"><b>k8s</b> v1.36.2</span>
+      <span class="chip"><b>k8s</b> v1.36.3</span>
       <span class="chip"><b>3×</b> t3a.medium · us-east-1</span>
       <span class="chip"><b>CNI</b> Cilium 1.19.4 (eBPF, no kube-proxy)</span>
       <span class="chip"><b>edge</b> Gateway API · Envoy :30443</span>
-      <span class="chip"><b>rebuild</b> ~8 min</span>
+      <span class="chip"><b>rebuild</b> ~8 min, hands-off</span>
+      <span class="chip"><b>postgres</b> hand-built + CloudNativePG 1.30</span>
+      <span class="chip"><b>backups</b> S3 WAL · RPO 1 segment</span>
     </div>
   </div>
 </header>
@@ -459,13 +461,55 @@
       </div>
 
       <div class="zone">
-        <span class="tag">workloads · deployed via ArgoCD (Kustomize base + overlay)</span>
+        <span class="tag">workloads · deployed via ArgoCD (4 Applications)</span>
         <div class="grid-3">
           <div class="box"><div class="t">hello</div><div class="d">traefik/whoami · Deployment<br>HTTPRoute: hello.k8s.kahng.dev</div></div>
-          <div class="box"><div class="t">pgbouncer ×2</div><div class="d">Deployment (stateless)<br>edoburu/pgbouncer v1.25.2<br>hand-written ini · VIP Service :6432</div></div>
-          <div class="box node"><div class="t">postgres pg-0</div><div class="d">StatefulSet ·  postgres:18<br>PVC 5Gi (local-path, node-pinned)<br>headless Service · stable identity</div></div>
+          <div class="box ghost"><div class="t">cnpg-operator <span class="pill accent">helm source</span></div><div class="d">CloudNativePG 1.30.0 · ns cnpg-system<br>ArgoCD renders the public chart<br><b>needs ServerSideApply</b> — CRDs exceed the 256KiB annotation cap</div></div>
         </div>
       </div>
+
+      <div class="zone">
+        <span class="tag">ns postgres — hand-built stack (7.1–7.3) · the reference implementation</span>
+        <div class="grid-3">
+          <div class="box"><div class="t">pgbouncer ×2</div><div class="d">Deployment (stateless)<br>edoburu/pgbouncer v1.25.2<br>hand-written ini → leader Service</div></div>
+          <div class="box node"><div class="t">postgres-0 / -1</div><div class="d">StatefulSet · <b>Patroni 4.1.4</b> + postgres:18<br>custom image on GHCR<br>podManagementPolicy: Parallel</div></div>
+          <div class="box ghost"><div class="t">Services</div><div class="d"><b>postgres</b> = leader, selector-less<br>(Patroni writes its Endpoints)<br><b>postgres-pods</b> = headless per-pod DNS<br><b>postgres-replica</b> = role=replica</div></div>
+        </div>
+        <div class="conn"><span class="lbl">DCS = the Kubernetes API · lease in annotations on Endpoints/postgres · ttl 30s</span><span class="wire"></span></div>
+      </div>
+
+      <div class="zone accent">
+        <span class="tag">ns postgres-cnpg — operator stack (7.4) · what we'd build on (ADR 007)</span>
+        <div class="grid-3">
+          <div class="box"><div class="t">pg-pooler-rw ×2</div><div class="d">Pooler CRD → pgbouncer<br>auth_query, no userlist file<br><b>operator flushes pools on failover</b></div></div>
+          <div class="box node"><div class="t">pg-1 / pg-2</div><div class="d">Cluster CRD · postgres 18.4<br><b>system</b>-trixie (has barman)<br><b>no StatefulSet</b> — operator owns pods</div></div>
+          <div class="box ghost"><div class="t">operator-made</div><div class="d">pg-rw / pg-ro / pg-r Services<br>internal PKI + mTLS replication<br>PDB on the primary<br>ScheduledBackup every 6h</div></div>
+        </div>
+        <div class="conn"><span class="lbl">consensus also on the k8s API — but instances never self-promote (survives apiserver loss)</span><span class="wire"></span></div>
+      </div>
+    </div>
+
+    <h3 class="band">backups — the first thing in this project that outlives the cluster</h3>
+    <div class="board">
+      <div class="steps">
+        <div class="step"><div class="t">pg primary</div><div class="d">WAL segment closes</div></div>
+        <span class="step-arrow">→</span>
+        <div class="step"><div class="t">barman-cloud</div><div class="d">in the instance · gzip</div></div>
+        <span class="step-arrow">→</span>
+        <div class="step"><div class="t">node IAM role</div><div class="d">IMDS · inheritFromIAMRole<br>no Secret in-cluster</div></div>
+        <span class="step-arrow">→</span>
+        <div class="step"><div class="t">s3://trk-k8s-pg-backups</div><div class="d">WAL + 6h base backups</div></div>
+        <span class="step-arrow">→</span>
+        <div class="step"><div class="t">restore</div><div class="d">into a cluster that never existed<br>52s · RPO = open WAL segment</div></div>
+      </div>
+      <p class="callout" style="margin-bottom:0">
+        <b>Two warnings earned the hard way.</b> <span class="mono">archived_count</span> climbed to 15
+        and the cluster reported “Continuous archiving is working” while the bucket was <b>empty</b> —
+        CNPG's archive command exits 0 with no destination configured, so the only honest check is
+        listing the bucket. And the bucket currently lives in the node Pulumi stack with
+        <span class="mono">ForceDestroy</span>, so <span class="mono">pulumi destroy</span> reaps the
+        backups — fine same-session, fatal for Phase 8's rebuild-with-state drill.
+      </p>
     </div>
 
     <h3 class="band">request path — https</h3>
@@ -494,18 +538,47 @@
         <span class="step-arrow">→</span>
         <div class="step"><div class="t">pgbouncer ×2</div><div class="d">pool — drilled: 5 clients over a pool of 2, all succeed</div></div>
         <span class="step-arrow">→</span>
-        <div class="step"><div class="t">headless Service</div><div class="d">stable DNS: pg-0.…</div></div>
+        <div class="step"><div class="t">leader Service</div><div class="d">whoever leads <i>right now</i><br>written by Patroni / the operator</div></div>
         <span class="step-arrow">→</span>
-        <div class="step"><div class="t">pg-0</div><div class="d">StatefulSet member</div></div>
+        <div class="step"><div class="t">primary</div><div class="d">the only member accepting writes</div></div>
         <span class="step-arrow">→</span>
-        <div class="step"><div class="t">PVC 5Gi</div><div class="d">local-path — data pins the pod to its node</div></div>
+        <div class="step"><div class="t">PVC 5Gi</div><div class="d">local-path — one per member; replication, not storage, syncs them</div></div>
       </div>
       <p class="callout" style="margin-bottom:0">
-        <b>Drilled guarantees:</b> delete pg-0 and it returns with the same name, same DNS,
-        same data. Cordon its node and it goes <span class="mono">Pending</span> rather than
-        losing the volume — the storage, not the scheduler, decides where it lives.
-        Deployment-vs-StatefulSet and VIP-vs-headless were contrasted deliberately:
-        pgbouncer is interchangeable, postgres is not.
+        <b>Why every hop exists:</b> the client's connection string never changes, through role
+        swaps, hard kills, and a 7-minute control-plane outage. Apps address the pooler; the
+        pooler addresses “the leader”; the leader is a Service whose Endpoints the HA layer
+        rewrites atomically on election. Drilled at each layer — 7.1 proved a StatefulSet's
+        identity/storage/DNS guarantees (and that local-path pins the pod to its data);
+        7.2 proved pooling (5 clients over a pool of 2); 7.3 and 7.4 proved the indirection
+        survives failover, and measured what it costs when the pooler <i>isn't</i> in on the plan.
+      </p>
+    </div>
+
+    <h3 class="band">the same drills, both stacks — what the operator is worth</h3>
+    <div class="tbl-scroll">
+      <table>
+        <thead><tr><th>Drill</th><th>Hand-built (Patroni)</th><th>CloudNativePG</th></tr></thead>
+        <tbody>
+          <tr><td>Planned switchover</td><td>~10s <span class="pill warn">+ ~3 min manual pooler RECONNECT</span></td><td class="tnum">1s · pooler follows in 2s</td></tr>
+          <tr><td>Cordon a node</td><td>inert — Patroni never notices</td><td>graceful primary evacuation <span class="pill ok">safe by default</span></td></tr>
+          <tr><td>Kill primary, healthy node</td><td><b>no failover</b> — StatefulSet won the race vs the 30s TTL</td><td class="tnum">promote 2s · writes 23s</td></tr>
+          <tr><td>Death detection</td><td>passive: wait out the lease (30s)</td><td>active health probe (2s)</td></tr>
+          <tr><td>Apiserver down ~7 min</td><td><span class="pill warn">self-fenced</span> full write outage</td><td><span class="pill ok">zero impact</span> 423 writes, max gap 4s</td></tr>
+          <tr><td>Restore after data loss</td><td>impossible — no backup story</td><td class="tnum">52s · exactly 1 row of 660 lost</td></tr>
+          <tr><td>Config surface</td><td>11 hand-written objects + patroni.yml</td><td>~30 lines of CRD</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="callout">
+      <b>The fence result overturned our own ADR.</b> ADR 006 recorded that using the Kubernetes API
+      as the DCS bought “control-plane outage = database write outage.” CNPG runs on the
+      <i>same</i> API and kept serving — while logging 128 <span class="mono">Failed to watch</span>
+      errors, so it knew and chose. The coupling belongs to <b>Patroni's self-promoting leader
+      model</b>, not the API: a leader whose claim is a renewable lease must demote when it can't
+      renew, because any peer might have taken over. CNPG centralizes promotion in the operator,
+      so when the API is unreachable <i>nobody</i> can promote — and the incumbent is safe to
+      continue. Corrected in ADR 007.
       </p>
     </div>
   </div>
@@ -595,14 +668,16 @@
         the cutover.</p>
       </div>
       <div class="phase wip">
-        <h4>Phase 7 · PostgreSQL <span class="pill warn">in progress</span> <span class="when">jul 18 →</span></h4>
-        <p>The named end-goal: state you care about, on a cluster you can rebuild.</p>
+        <h4>Phase 7 · PostgreSQL <span class="pill warn">7.5 remaining</span> <span class="when">jul 18 → aug 1</span></h4>
+        <p>The named end-goal: state you care about, on a cluster you can rebuild.
+        Built by hand first, on purpose — which is the only reason the operator's
+        numbers mean anything.</p>
         <ul>
-          <li>7.1 ✅ StatefulSet + PVC — identity and data survive pod deletion</li>
-          <li>7.2 ✅ PgBouncer — pooling, Deployment-vs-StatefulSet, VIP-vs-headless</li>
-          <li>7.3 — Patroni HA <span class="why">· leader election; DCS choice: ZooKeeper/etcd vs the k8s API</span></li>
-          <li>7.4 — Operators <span class="why">· CloudNativePG / Zalando — appreciate what they automate</span></li>
-          <li>7.5 — Capstone <span class="why">· Saleor or Supabase end-to-end behind the gateway</span></li>
+          <li>7.1 ✅ StatefulSet + PVC — identity and data survive pod deletion; local-path pins the pod to its data</li>
+          <li>7.2 ✅ PgBouncer — pooling (5 clients / pool of 2), Deployment-vs-StatefulSet, VIP-vs-headless</li>
+          <li>7.3 ✅ Patroni HA on the k8s-API DCS <span class="why">· four bootstrap traps (scope-name collision, OrderedReady deadlock, the invisible scope label, a trailing newline splitting env-auth from pgpass-auth); five drills — including the self-fence, and the pooler gap that cost 3 minutes</span></li>
+          <li>7.4 ✅ CloudNativePG <span class="why">· ADR 007. Pooler gap closed (3min → 2s), detection 30s → 2s, cordon = graceful evacuation, and no fence on a 7-min apiserver outage — which disproved ADR 006. Plus backups: S3 WAL archiving, restore in 52s, RPO measured. Zalando dropped — comparison already made.</span></li>
+          <li>7.5 — Capstone <span class="why">· Saleor or Supabase end-to-end behind the gateway, on CNPG</span></li>
         </ul>
       </div>
       <div class="phase future">
@@ -621,7 +696,7 @@
   <div class="wrap">
     <p>Sources: <span class="mono">docs/PLAN.md</span>, <span class="mono">docs/decisions/ADR 001–005</span>,
     <span class="mono">docs/journal/</span> (12 entries, 2026-07-13 → 2026-07-18).
-    Diagrams reflect the cluster as of Phase 7.2.</p>
+    Diagrams reflect the cluster as of Phase 7.4 (ADR 007) — both postgres stacks running side by side.</p>
   </div>
 </footer>
 

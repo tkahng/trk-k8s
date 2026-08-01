@@ -161,7 +161,7 @@
 
 <header class="site">
   <div class="wrap">
-    <p class="eyebrow">trk-k8s · field notes · jul 13 – 18, 2026</p>
+    <p class="eyebrow">trk-k8s · field notes · jul 13 – aug 1, 2026</p>
     <h1>Lessons learned building a Kubernetes cluster from scratch</h1>
     <p class="lede">
       Everything the journal taught us, distilled from twelve dated entries — six days
@@ -169,10 +169,10 @@
       Gateway API edge. Each lesson is tagged with how it was earned.
     </p>
     <div class="chips">
-      <span class="chip"><b>12</b> journal entries</span>
-      <span class="chip"><b>4</b> drills</span>
-      <span class="chip"><b>5</b> ADRs</span>
-      <span class="chip"><b>56</b> lessons + 5 meta-patterns</span>
+      <span class="chip"><b>17</b> journal entries</span>
+      <span class="chip"><b>9</b> drills</span>
+      <span class="chip"><b>7</b> ADRs</span>
+      <span class="chip"><b>82</b> lessons + 6 meta-patterns</span>
     </div>
     <div class="legend">
       <span class="item"><span class="pill bitten">bitten</span> an incident taught it the hard way</span>
@@ -191,6 +191,7 @@
     <a href="#network">Networking &amp; edge</a>
     <a href="#gitops">GitOps &amp; secrets</a>
     <a href="#state">State &amp; storage</a>
+    <a href="#ha">Postgres HA</a>
     <a href="#craft">Operator craft</a>
   </div>
 </nav>
@@ -230,6 +231,13 @@
         <p>Hubble went in with Cilium in Phase 3 as a nice-to-have. In Phase 4 it ended a
         four-step debugging mystery in one command. Logs say "timeout"; the network
         observer says <em>why</em> and <em>where</em>.</p>
+      </div>
+      <div class="meta-card">
+        <h3>Build it by hand to make the tool legible</h3>
+        <p>"Failover in 2 seconds" is a number. "2 seconds instead of the three minutes we spent typing
+        RECONNECT into two pgbouncer pods" is a lesson. An operator's value isn't that it works — it's
+        which problems it makes structurally impossible, and that list is only visible from the far side
+        of having had them.</p>
       </div>
     </div>
   </div>
@@ -522,6 +530,39 @@
         script on the existing token).</div>
         <div class="src"><span>jul 15–18</span><span class="pill observed">observed</span></div>
       </div>
+      <div class="lesson">
+        <div class="claim">The Applications themselves aren't GitOps-managed.</div>
+        <div class="story">A fix committed and pushed to <code>cluster/gitops/*.yaml</code> changed
+        <em>nothing</em> — platform.sh applies those files imperatively once, and nothing watches them
+        after. Twenty minutes of "why isn't my fix working" before a hand <code>kubectl apply</code> —
+        the exact indignity GitOps exists to remove. App-of-apps graduated from loose end to
+        prerequisite, with a dated incident attached.</div>
+        <div class="src"><span>jul 29 · 7.4</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">selfHeal reverts drift; it does not retry defeats.</div>
+        <div class="story">Automated sync had exhausted its attempts on that revision, and changing the
+        syncPolicy doesn't count as a new one — so nothing would ever retry on its own. A sync must be
+        requested explicitly. Three reasonable ArgoCD behaviours composing into "nothing is
+        happening".</div>
+        <div class="src"><span>jul 29 · 7.4</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Megabyte CRDs need server-side apply.</div>
+        <div class="story">Client-side apply stuffs the whole object into the
+        <code>last-applied-configuration</code> annotation, which caps at 256KiB. CNPG's two biggest
+        CRDs silently failed while nine others landed — so the operator crash-looped on
+        <code>no matches for kind "Cluster"</code>, a symptom four layers from its cause.
+        <code>ServerSideApply=true</code> tracks field ownership in the apiserver instead.</div>
+        <div class="src"><span>jul 29 · 7.4</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">selfHeal fights you during surgery — pause it deliberately.</div>
+        <div class="story">Wiping PVCs and DCS state raced ArgoCD recreating the StatefulSet, which
+        re-pinned the Terminating volumes. Set <code>syncPolicy.automated: null</code>, do the work in
+        order, then restore the policy from git. The dividend and the obstacle are the same feature.</div>
+        <div class="src"><span>jul 26 · 7.3</span><span class="pill bitten">bitten</span></div>
+      </div>
     </div>
   </div>
 </section>
@@ -610,6 +651,158 @@
   </div>
 </section>
 
+<!-- ============ HA / POSTGRES ============ -->
+<section id="ha">
+  <div class="wrap">
+    <h2>Postgres HA — hand-built, then operated</h2>
+    <p class="section-sub">Phase 7.3 built Patroni by hand; 7.4 replaced it with CloudNativePG and re-ran
+    the identical drills. Almost everything here was found by breaking something on purpose.</p>
+    <div class="lessons">
+      <div class="lesson">
+        <div class="claim">Fencing comes from the leadership model, not from the DCS.</div>
+        <div class="story">We recorded in ADR 006 that using the Kubernetes API for consensus buys
+        "control-plane outage = write outage" — Patroni self-fenced within its 30s lease and proved it.
+        Then CNPG, on the <em>same</em> API, rode out a 7-minute apiserver outage without dropping a
+        write. Patroni's leader holds a renewable lease and any member may self-promote, so a leader who
+        can't renew <em>must</em> demote. CNPG centralizes promotion in the operator: if the API is gone
+        nobody can promote, so the incumbent is safe to continue. Corrected in ADR 007.</div>
+        <div class="src"><span>jul 28 + jul 31</span><span class="pill drilled">drilled</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">It knew, and chose — check before assuming ignorance.</div>
+        <div class="story">CNPG's primary logged <b>128</b> <code>Failed to watch</code> errors during the
+        outage. The difference between "survived because it's well designed" and "survived because it
+        never noticed" is worth one log query, and it's the whole difference between a finding and a
+        coincidence.</div>
+        <div class="src"><span>jul 31 · 7.4</span><span class="pill observed">observed</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Failover isn't finished until the pooler lets go.</div>
+        <div class="story">Our hand-built database completed its failover at 08:26; the application
+        couldn't write until 08:29. pgbouncer's pooled connections stayed pinned to the demoted primary —
+        established TCP doesn't follow Endpoints. Worse, firing <code>RECONNECT</code> through the Service
+        VIP hits one pod at random, visible as OK/ERROR flapping; it took per-pod-IP commands to flush
+        both. CNPG's <code>Pooler</code> closes this in 2s because one controller owns promotion
+        <em>and</em> the pool.</div>
+        <div class="src"><span>jul 28 · 7.3</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Passive lease expiry vs active health probes: 30s vs 2s.</div>
+        <div class="story">Patroni infers death from <em>absence</em> — silence for a full TTL. CNPG
+        health-checks every instance, so a failed readiness probe is direct evidence. Same job, opposite
+        epistemology, and most of the detection-time gap.</div>
+        <div class="src"><span>jul 31 · 7.4</span><span class="pill observed">observed</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Two recovery layers that don't know about each other race by accident.</div>
+        <div class="story">Killing the primary on a healthy node caused <em>no</em> Patroni failover: the
+        StatefulSet controller resurrected the pod faster than the 30s TTL could expire. Neither system
+        decided anything — the faster one won. CNPG owns both pod lifecycle and failover, so it
+        <em>chose</em>: promote the replica, rebuild the dead one as a replica.</div>
+        <div class="src"><span>jul 28 + jul 31</span><span class="pill drilled">drilled</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">A cordon is a no-op to one system and a drain signal to another.</div>
+        <div class="story">Cordoning was our technique for blocking pod resurrection — inert to Patroni.
+        CNPG watches for the <code>unschedulable</code> taint and gracefully evacuates the primary before
+        you disturb anything. Node maintenance is safe by default; it also invalidated our drill recipe
+        by being too careful.</div>
+        <div class="src"><span>jul 31 · 7.4</span><span class="pill observed">observed</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">The leader Service must be named exactly the scope.</div>
+        <div class="story">In <code>use_endpoints</code> mode Patroni strips <code>-leader</code>, so its
+        lease lives on <code>Endpoints/&lt;scope&gt;</code>. Our headless Service already owned that name —
+        so the endpoints controller and Patroni fought over one object, Patroni lost every
+        compare-and-swap, and the only symptom was <code>Could not take out TTL lock</code> with no error.
+        A successful initdb followed by an immediate self-demotion, forever.</div>
+        <div class="src"><span>jul 26 · 7.3</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Patroni appends a label to its member selector that it never stamps.</div>
+        <div class="story">The pod selector is <code>kubernetes.labels</code> <em>plus</em>
+        <code>cluster-name=&lt;scope&gt;</code>, added automatically — but only the <em>role</em> label gets
+        written to pods. Without it the member watch matches zero pods: elections still work, but a
+        replica can't resolve the leader's connection URL and fails in ~1ms with a bare "failed to
+        bootstrap from leader", wiping its data dir on every retry.</div>
+        <div class="src"><span>jul 26 · 7.3</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">A database with its own coordinator must not inherit the StatefulSet's.</div>
+        <div class="story">OrderedReady deadlocks when the initialized data sits on a higher ordinal:
+        ordinal 0 waits for a leader to clone from while the leader-to-be waits for ordinal 0 to be
+        Ready. <code>podManagementPolicy: Parallel</code> — Patroni's DCS race is the only ordering
+        needed. CNPG went further and abandoned StatefulSets entirely.</div>
+        <div class="src"><span>jul 26 · 7.3</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">One trailing newline can split env auth from file auth.</div>
+        <div class="story"><code>openssl rand … &gt; file</code> ends with <code>\n</code>. The env var
+        carried it, so Patroni created the role with <code>password\n</code> — but pgpass is
+        line-oriented and dropped it, so <code>pg_basebackup</code> sent <code>password</code>. The
+        database held one value and the wire carried another, both "the secret". Diagnosed by comparing
+        byte counts, never printing the value.</div>
+        <div class="src"><span>jul 26 · 7.3</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Rewind and data loss have the same precondition.</div>
+        <div class="story">A deposed leader needs <code>pg_rewind</code> only if it holds commits the new
+        leader never saw — which is exactly when async replication would have lost data. Ours needed no
+        rewind: its last LSN sat at the fork point, so recovery just fetched the new timeline's history
+        and fast-forwarded. Two sides of one coin, observed on both faces.</div>
+        <div class="src"><span>jul 28 · 7.3</span><span class="pill drilled">drilled</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim"><code>archived_count</code> climbing is not evidence of backups.</div>
+        <div class="story">It reached 15, and the cluster condition read "Continuous archiving is
+        working", while the S3 bucket was <b>empty</b> — CNPG's archive command exits 0 when no
+        destination is configured. A green dashboard and no backups. The only honest check is listing
+        the bucket. After the fix, <code>failed_count</code> climbed instead: failing loudly beats
+        succeeding falsely.</div>
+        <div class="src"><span>jul 31 · 7.4</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Image variants can differ by capability, not just size.</div>
+        <div class="story">We picked CNPG's <code>standard</code> image to mirror our hand-built
+        <code>postgres:18</code> — the one variant that dropped the barman-cloud binaries, because
+        backups are migrating to a plugin. The operator's own default (<code>system</code>) was the
+        answer all along; we overrode it for symmetry and paid in a debugging session.</div>
+        <div class="src"><span>jul 31 · 7.4</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">RPO measured, not assumed: the currently-open WAL segment.</div>
+        <div class="story">Restored a base backup plus archived WAL into a cluster that didn't exist when
+        the backup was taken — 52 seconds, and <b>exactly one row of 660</b> missing: the marker written
+        after the last archived segment. Specific and explainable, which is what you want before an
+        incident rather than during one.</div>
+        <div class="src"><span>jul 31 · 7.4</span><span class="pill drilled">drilled</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Timelines are the forensic record of promotions.</div>
+        <div class="story">Postgres increments the timeline on every promotion, so the number is a
+        tamper-proof count of how many times leadership changed. Our "non-event" drill — where no
+        failover happened — still left a timeline bump as its only trace.</div>
+        <div class="src"><span>jul 28 · 7.3</span><span class="pill observed">observed</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Bootstrap belongs in its own disposable pod.</div>
+        <div class="story">CNPG runs initdb and restores in dedicated job pods
+        (<code>pg-1-initdb-*</code>, <code>pg-restored-1-full-recovery-*</code>) — observable, separate,
+        thrown away. Our Patroni stack bootstrapped inside the container that would later serve queries,
+        so the same logs carried both. The operator's instinct showed up three separate times.</div>
+        <div class="src"><span>jul 29–31 · 7.4</span><span class="pill observed">observed</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Operators encode knowledge you haven't acquired yet.</div>
+        <div class="story">From 30 lines of CRD came a PodDisruptionBudget on the primary, an internal
+        PKI with mTLS replication (so the newline bug has no substrate), and graceful evacuation on
+        cordon. We didn't omit these by choice — we didn't know to want them.</div>
+        <div class="src"><span>jul 29 · 7.4 · ADR 007</span><span class="pill decided">decided</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
 <!-- ============ CRAFT ============ -->
 <section id="craft">
   <div class="wrap">
@@ -661,6 +854,44 @@
         must be driven from a real terminal, and it's worth knowing which before scripting around them.</div>
         <div class="src"><span>jul 13</span><span class="pill observed">observed</span></div>
       </div>
+      <div class="lesson">
+        <div class="claim">Time a human-triggered drill from the system's clock, not yours.</div>
+        <div class="story">My stopwatch started when I armed it, then the user read an explanation before
+        firing — so "109 seconds" measured their reading speed, not the failover. The cluster's own event
+        record gave the honest numbers: 2s to detect, 23s to full recovery. Always ask what your
+        measurement's zero point actually is.</div>
+        <div class="src"><span>jul 31 · 7.4</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Probes must not depend on the layer you're breaking.</div>
+        <div class="story">kubectl dies with the apiserver, so the fence drill was observed via SSH +
+        <code>crictl exec</code> on the node plus external curl for the control app. Designing the
+        periscopes was half the drill — and the reason the result is trustworthy.</div>
+        <div class="src"><span>jul 28 + jul 31</span><span class="pill decided">decided</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Compare byte counts, not secrets.</div>
+        <div class="story"><code>wc -c</code> against a newline-stripped <code>wc -c</code> found the
+        one-byte difference that was breaking authentication — without printing the password into a
+        terminal or a transcript.</div>
+        <div class="src"><span>jul 26 · 7.3</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">A CLI doesn't necessarily read its daemon's config.</div>
+        <div class="story"><code>patronictl</code> assembled a partial config from <code>PATRONI_*</code>
+        env vars and crashed on the missing <code>kubernetes.labels</code>. The daemon gets file+env
+        because PID 1 is launched with the file; the CLI is a separate process that only knows what you
+        hand it — <code>-c /etc/patroni/patroni.yml</code>, every time.</div>
+        <div class="src"><span>jul 31 · 7.3</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Read the source shipped in the image — it IS the running code.</div>
+        <div class="story">Three of the four Patroni traps fell to
+        <code>docker run --entrypoint sh</code> plus grep: the slice that strips <code>-leader</code>,
+        the empty method list that fails in 1ms, the appended scope label. Faster and more certain than
+        documentation, because it cannot be out of date.</div>
+        <div class="src"><span>jul 26 · 7.3</span><span class="pill observed">observed</span></div>
+      </div>
     </div>
     <p class="callout">
       <b>The pattern behind this whole section:</b> almost nothing here is a Kubernetes lesson.
@@ -673,10 +904,10 @@
 
 <footer class="site">
   <div class="wrap">
-    <p>Distilled from <span class="mono">docs/journal/</span> (12 entries, 2026-07-13 → 2026-07-18)
+    <p>Distilled from <span class="mono">docs/journal/</span> (17 entries, 2026-07-13 → 2026-08-01)
     and <span class="mono">docs/decisions/</span> (ADR 001–005). Companion page:
     <span class="mono">docs/architecture.html</span> — the diagrams these lessons were earned on.
-    Current as of Phase 7.2; Patroni (7.3) will add its own entries.</p>
+    Current as of Phase 7.4 (ADR 007). Only the capstone (7.5) remains in Phase 7.</p>
   </div>
 </footer>
 
