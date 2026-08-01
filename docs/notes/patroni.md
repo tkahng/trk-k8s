@@ -44,9 +44,35 @@ The leader holds a lease in the DCS and renews it every loop. The knobs
 noticed within ≤30s) and the **fencing clock**: a leader that cannot
 reach the apiserver self-demotes when its lease would have expired,
 because it must assume someone else won it. That is what prevents
-split-brain — and it's the price of the k8s-API DCS: control-plane
-outage becomes a Postgres *write* outage (the deliberate exception to
-drill 3's "control plane down ≠ outage"; see ADR 006).
+split-brain — and it means control-plane outage becomes a Postgres
+*write* outage (the exception to drill 3's "control plane down ≠
+outage"). Both drilled: 7.3 measured the fence; 7.4 measured the
+alternative.
+
+> **Correction (2026-07-31, ADR 007).** ADR 006 called that coupling
+> "the price of the k8s-API DCS". **It isn't.** Phase 7.4 ran
+> CloudNativePG on the *same* Kubernetes API through a 7-minute
+> apiserver outage: zero impact, writes never stopped, no promotion,
+> and its instance manager logged 128 `Failed to watch` errors
+> throughout — it knew and chose to keep serving.
+>
+> The coupling comes from the **leadership model**, not the DCS:
+>
+> - **Patroni** — leadership IS a renewable lease and *any member may
+>   promote itself*. Promotion is a distributed decision, so a leader
+>   who cannot renew must demote: it can no longer prove no rival took
+>   over. Fencing is structural, not configurable.
+> - **CloudNativePG** — promotion is centralized in the operator;
+>   instances never self-promote. If the API is unreachable the operator
+>   can't act either, so *nobody* can promote and the incumbent primary
+>   is safe to continue.
+>
+> Corrected statement: *using the Kubernetes API for consensus does not
+> by itself couple database availability to control-plane availability.
+> A self-promoting leader model does.* Neither is safer in the abstract
+> — Patroni's guards against a partitioned member acting unilaterally;
+> CNPG's guards against control-plane maintenance taking the database
+> down, by removing unilateral action entirely.
 
 ## Election, on the Kubernetes API
 
@@ -147,3 +173,23 @@ judge in 7.4 what the operators automate. Patroni's own k8s demo goes
 all-env (`PATRONI_*` only, no file); we chose the structured file
 because it teaches Patroni's actual config model, the one the docs and
 `patronictl` speak.
+
+## What 7.4 actually measured (so this note isn't the last word)
+
+We did the judging, on identical drills with identical marker
+techniques. CloudNativePG 1.30 vs this stack — full scoring in ADR 007,
+raw sessions in the 2026-07-29/31 journals:
+
+| | Patroni (this note) | CloudNativePG |
+|---|---|---|
+| Planned switchover | ~10s + **~3 min** manual per-pod pgbouncer `RECONNECT` | 1s; pooler follows in 2s |
+| Kill primary, healthy node | *no failover* — the StatefulSet controller won the race against `ttl` | promote in 2s, writes at 23s |
+| Death detection | passive: wait out the 30s lease | active health probe: 2s |
+| Apiserver down ~7 min | self-fenced, full write outage | zero impact (see correction above) |
+| Restore after data loss | not possible — no backup story | 52s from S3, RPO = one open WAL segment |
+| Config surface | this whole file, hand-written | ~30 lines of CRD |
+
+The verdict was CNPG (ADR 007). This note stays because **it is what
+makes that verdict legible**: "2 seconds" is a number until you have
+personally spent three minutes typing `RECONNECT` into two pgbouncer
+pods to finish a failover the database had already completed.
