@@ -28,7 +28,18 @@ spec:
   instances: 2
   # Same major+minor and Debian base as our hand-built image
   # (postgres:18 / trixie) — keeps the comparison honest.
-  imageName: ghcr.io/cloudnative-pg/postgresql:18.4-standard-trixie
+  #
+  # SYSTEM, not standard: CNPG splits its images by what they carry.
+  # `standard` dropped the barman-cloud binaries because backups are
+  # migrating to the Barman Cloud Plugin; `system` still ships them, and
+  # in-tree spec.backup.barmanObjectStore (below) invokes them directly.
+  # Found the hard way: with `standard`, WAL archiving fails with
+  # `"barman-cloud-wal-archive": executable file not found in $PATH` —
+  # and Postgres reports archived_count climbing regardless (see the
+  # journal; CNPG's no-op archive path lies by omission).
+  # The plugin (v0.14.0, pre-1.0) is the future; migration is a noted
+  # follow-up, not this lab's lesson.
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie
   storage:
     size: 5Gi
     # no storageClass -> default = local-path: same node-pin trade as
