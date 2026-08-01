@@ -15,6 +15,20 @@ and had dinner on time.
 Make targets: `make bootstrap`, `make platform`, and the whole drill:
 `make rebuild` (destroy → up → bootstrap → platform).
 
+**Two stacks, two lifecycles (ADR 008).** `infra/aws` holds the machines
+and is destroyed every session. `infra/aws-persistent` holds the Postgres
+backup bucket and is created ONCE (`make persist-up`) and never destroyed
+by a lab cycle — a backup that dies with the cluster isn't one. The
+ephemeral stack reads one value from it (the IAM policy ARN) via
+StackReference, so `make up` FAILS until `make persist-up` has run.
+
+**ArgoCD Applications are GitOps-managed (ADR 008).** platform.sh applies
+only `cluster/gitops/root.yaml`; that root watches
+`cluster/gitops/apps/` and creates the children from git. Editing an
+Application's spec now takes effect on push — before this, it silently
+did nothing. Beware `prune`: deleting a file from `apps/` deletes that
+Application and cascades to everything it deployed.
+
 All scripts are idempotent — re-running against a live cluster skips
 what's done (prep re-runs harmlessly; init/join/helm installs are guarded).
 
@@ -26,6 +40,7 @@ Secrets are file-driven, never in git:
 
 The between-sessions habit is teardown, so "pick up where I left off" is:
 
+    make persist-up # ONCE, ever: backup bucket + IAM policy (ADR 008)
     make up         # machines exist (check-ip preflight runs automatically)
     make bootstrap  # machines become a cluster
     make platform   # cluster becomes useful; ArgoCD pulls the apps back

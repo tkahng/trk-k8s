@@ -1,0 +1,7 @@
+name: trk-k8s-aws-persistent
+runtime: go
+description: >
+  Data that must OUTLIVE the cluster. Separate Pulumi project on purpose:
+  `make destroy` tears down trk-k8s-aws every session, and anything sharing
+  that stack dies with it. Postgres backups cannot (ADR 008).
+  This stack is created once and never destroyed as part of a lab cycle.

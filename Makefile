@@ -3,6 +3,9 @@
 # (aws → hetzner → on-prem) only changes this header.
 
 INFRA_DIR      := infra/aws
+# Data that must outlive the cluster (ADR 008). NEVER destroyed by `destroy`
+# or `rebuild` — that's the whole point.
+PERSIST_DIR    := infra/aws-persistent
 SSH_KEY        := ~/.ssh/aws_k8s
 # personal-admin since 2026-07-14: nodes carry an IAM instance profile, so
 # pulumi needs iam:PassRole (beyond PowerUserAccess) to touch instances.
@@ -12,7 +15,7 @@ PULUMI         := PULUMI_CONFIG_PASSPHRASE_FILE=$(HOME)/.config/pulumi/trk-k8s.p
 # node name → public IP, straight from the inventory contract
 node_ip = $(shell cd $(INFRA_DIR) && $(PULUMI) stack output nodes | jq -r '.[] | select(.name=="$(1)").publicIp')
 
-.PHONY: help login preview up destroy nodes outputs check-ip set-myip ssh-cp ssh-worker-1 ssh-worker-2 kubeconfig bootstrap platform rebuild
+.PHONY: help login preview up destroy nodes outputs check-ip set-myip ssh-cp ssh-worker-1 ssh-worker-2 kubeconfig bootstrap platform rebuild persist-up persist-outputs persist-destroy
 
 help: ## list available targets
 	@grep -E '^[a-z0-9-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -26,8 +29,21 @@ preview: ## show what pulumi would change
 up: check-ip ## create/update the cluster machines
 	cd $(INFRA_DIR) && $(PULUMI) up --yes
 
-destroy: ## tear everything down (do this when done for the day)
+destroy: ## tear down the CLUSTER machines (backups survive — see persist-*)
 	cd $(INFRA_DIR) && $(PULUMI) destroy --yes
+
+persist-up: ## create/update the persistent data stack (backup bucket + IAM policy). Run once.
+	cd $(PERSIST_DIR) && $(PULUMI) up --yes
+
+persist-outputs: ## show persistent stack outputs (bucket name, policy arn)
+	@cd $(PERSIST_DIR) && $(PULUMI) stack output
+
+persist-destroy: ## DESTROYS YOUR POSTGRES BACKUPS. Not part of any lab cycle.
+	@echo "This deletes the backup bucket and every backup in it (ADR 008)."
+	@echo "The bucket has no ForceDestroy, so this FAILS unless you empty it first:"
+	@echo "  aws s3 rm s3://trk-k8s-pg-backups --recursive --profile $(AWS_PROFILE)"
+	@printf 'Type DELETE-BACKUPS to proceed: ' && read a && [ "$$a" = "DELETE-BACKUPS" ]
+	cd $(PERSIST_DIR) && $(PULUMI) destroy --yes
 
 nodes: ## print the node inventory (the provider-agnostic contract)
 	@cd $(INFRA_DIR) && $(PULUMI) stack output nodes | jq .

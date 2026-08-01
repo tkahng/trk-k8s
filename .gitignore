@@ -1,5 +1,6 @@
 # Go build artifacts (binaries named after their directory)
 infra/aws/aws
+infra/aws-persistent/aws-persistent
 infra/hetzner/hetzner
 
 # Pulumi local plugin/log noise

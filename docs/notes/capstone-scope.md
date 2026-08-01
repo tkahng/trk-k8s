@@ -139,10 +139,12 @@ That *changes* the migration lesson rather than removing it. Instead of
 5. **Full rebuild** — `make destroy` → rebuild → does the documented
    cluster come back from git + S3 alone?
 
-## Blockers to clear first
+## Blockers — CLEARED 2026-08-01 (ADR 008)
 
-- **The backup bucket dies with `pulumi destroy`** (it lives in the node
-  stack with `ForceDestroy`). Drills 4–5 and all of Phase 8 depend on it
-  outliving the cluster. Needs a separate lifecycle.
-- **App-of-apps** — Applications still aren't GitOps-managed (the 7.4
-  part 1 incident). A fifth Application makes that worse, not better.
+- ~~The backup bucket dies with `pulumi destroy`~~ → moved to
+  `infra/aws-persistent` (no ForceDestroy, versioned, `make persist-up`).
+  Drills 4–5 and Phase 8 are now actually testable.
+- ~~Applications aren't GitOps-managed~~ → app-of-apps:
+  `cluster/gitops/root.yaml` watches `cluster/gitops/apps/`, and
+  platform.sh applies only the root. Adding NetBox is now one file in
+  `apps/` plus a push.

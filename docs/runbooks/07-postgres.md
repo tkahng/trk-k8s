@@ -20,8 +20,9 @@ except drill artifacts (noted where they are).
   - `~/.config/trk-k8s/postgres-replication-password` — **generated** by
     platform.sh if missing, newline-stripped (see gotchas)
 - The CNPG operator arrives as its own ArgoCD Application sourcing the
-  public Helm chart — `cluster/gitops/cnpg-operator-app.yaml`, which
-  **must** carry `ServerSideApply=true` (see gotchas)
+  public Helm chart — `cluster/gitops/apps/cnpg-operator.yaml`, which
+  **must** carry `ServerSideApply=true` (see gotchas). Since ADR 008 the
+  Applications are themselves GitOps-managed by `root.yaml`.
 
 ## Connecting
 
@@ -162,9 +163,9 @@ row lost of 660). Restore took 52s. Bound it tighter with
   not 5-field Unix.
 - Backup credentials are node-scoped via IMDS: any pod on the node can
   reach the bucket. IRSA is the correct fix; needs an OIDC provider.
-- The bucket currently lives in the node Pulumi stack with
-  `ForceDestroy` — **`pulumi destroy` reaps your backups.** Fine
-  same-session, fatal for Phase 8's rebuild-with-state drill.
+- The bucket lives in `infra/aws-persistent` and survives
+  `make destroy` (ADR 008). Create it once with `make persist-up`;
+  `make up` fails without it (StackReference).
 
 **Hand-built / Patroni**
 

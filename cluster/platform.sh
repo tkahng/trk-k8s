@@ -128,12 +128,12 @@ if ! kubectl -n argocd get secret repo-trk-k8s > /dev/null 2>&1; then
     echo "  WARNING: $ARGOCD_KEY missing — argocd cannot pull the repo."
   fi
 fi
-# one -f per file: `-f a.yaml b.yaml` treats the second file as a stray
-# arg — bit us on the first rebuild after a second Application appeared
-for app in "$REPO_ROOT"/cluster/gitops/*.yaml; do
-  kubectl apply -f "$app" > /dev/null
-done
-echo "  applications applied"
+# App-of-apps: ONE imperative apply, ever. The root Application watches
+# cluster/gitops/apps/ and creates the rest from git, so a change to an
+# Application's spec now takes effect on push instead of needing a hand
+# apply (the 7.4 part 1 incident; ADR 007 made this a prerequisite).
+kubectl apply -f "$REPO_ROOT/cluster/gitops/root.yaml" > /dev/null
+echo "  root application applied (children come from git)"
 
 echo
 echo "### Platform restored. MANUAL steps that remain after a rebuild:"

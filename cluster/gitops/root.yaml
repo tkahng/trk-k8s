@@ -1,0 +1,50 @@
+# The app-of-apps root — the ONLY Application platform.sh applies by hand.
+#
+# WHY (the 7.4 part 1 incident): every Application used to be applied
+# imperatively by platform.sh, and nothing watched them afterwards. A fix
+# committed and pushed to cluster/gitops/*.yaml changed NOTHING until it
+# was applied by hand — twenty minutes of "why isn't my fix working",
+# which is the exact indignity GitOps exists to remove. ADR 007 promoted
+# this from loose end to prerequisite.
+#
+# Now: this root watches cluster/gitops/apps/, so the Applications are
+# themselves desired state. Add a file, push, and ArgoCD creates the
+# Application. Edit a syncPolicy, push, and it takes effect.
+#
+# NOTE it does NOT watch its own directory — root.yaml lives one level up
+# so it can't manage itself. A self-managing root works but makes the
+# bootstrap confusing: if root's own spec is broken, nothing can fix it
+# except a hand apply, which is where we started.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: git@github.com:tkahng/trk-k8s.git
+    targetRevision: main
+    path: cluster/gitops/apps
+    directory:
+      recurse: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      # prune: DELETING A FILE FROM apps/ DELETES THAT APPLICATION, and
+      # with it (cascade) everything that Application deployed. That is
+      # the intended power and the obvious footgun — removing
+      # apps/postgres-cnpg.yaml would take the database with it.
+      prune: true
+      selfHeal: true
+    retry:
+      # The children include the CNPG operator, whose CRDs the
+      # postgres-cnpg child needs; ordering resolves by convergence
+      # rather than by sequencing (7.4 part 1 lesson).
+      limit: 10
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 3m
