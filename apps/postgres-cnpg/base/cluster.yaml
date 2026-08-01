@@ -34,3 +34,31 @@ spec:
     # no storageClass -> default = local-path: same node-pin trade as
     # 7.1, on purpose. The operator's replica re-init story meets
     # local storage in the node-loss drill.
+
+  # THE capability neither stack had before (7.4 backup lab). Drill 3
+  # proved etcd snapshots don't cover PV data; 7.1 proved `pulumi
+  # destroy` takes the database with it. Until now, "the cluster
+  # survives" was never "the data survives".
+  #
+  # Two mechanisms, both via barman-cloud inside the instance:
+  #   - WAL archiving: continuous, every closed WAL segment ships to S3.
+  #     This is what makes point-in-time recovery possible at all.
+  #   - Base backups: periodic full copies (see scheduledbackup.yaml);
+  #     recovery = nearest base backup + replay WAL forward.
+  backup:
+    # Keep backups for 7 days, then barman prunes them.
+    retentionPolicy: 7d
+    barmanObjectStore:
+      destinationPath: s3://trk-k8s-pg-backups/
+      s3Credentials:
+        # No credential Secret anywhere — the instance assumes the node's
+        # IAM role over IMDS, the same path the EBS CSI driver uses (and
+        # the one that taught us the hop-limit-3 lesson in Phase 4).
+        # TRADE-OFF (ADR 007): node-scoped, so any pod on the node can
+        # reach this bucket. IRSA would scope per-ServiceAccount but
+        # needs an OIDC provider kubeadm doesn't create.
+        inheritFromIAMRole: true
+      wal:
+        compression: gzip
+      data:
+        compression: gzip

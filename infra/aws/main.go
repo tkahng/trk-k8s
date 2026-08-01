@@ -175,8 +175,11 @@ func main() {
 		// cluster: the whole point is restoring into a cluster that didn't
 		// exist when the backup was taken. `pulumi destroy` still removes it
 		// (ForceDestroy) — deliberate for a lab, wrong for production.
+		// FIXED name, not BucketPrefix: the CRD in apps/postgres-cnpg must
+		// name this bucket in git, so a generated suffix would be
+		// unreferenceable and would change on every stack recreate.
 		backupBucket, err := s3.NewBucketV2(ctx, "k8s-pg-backups", &s3.BucketV2Args{
-			BucketPrefix: pulumi.String("trk-k8s-pg-backups-"),
+			Bucket:       pulumi.String("trk-k8s-pg-backups"),
 			ForceDestroy: pulumi.Bool(true),
 			Tags:         pulumi.StringMap{"cluster": pulumi.String("trk-k8s")},
 		})

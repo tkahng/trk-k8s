@@ -1,0 +1,19 @@
+# Phase 7.4 backup lab — periodic base backups.
+#
+# Recovery arithmetic: restoring = take the nearest base backup, then
+# replay archived WAL forward from it. WAL archiving alone would mean
+# replaying from the beginning of time; base backups bound that work.
+# So the schedule is really "how much WAL replay am I willing to do".
+#
+# Note the 6-field cron (seconds first) — CNPG uses Go's robfig/cron,
+# NOT the 5-field Unix format. "0 0 */6 * * *" = every 6 hours on the
+# hour, not "every 6 seconds".
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: pg-backup-6h
+spec:
+  schedule: "0 0 */6 * * *"
+  backupOwnerReference: self
+  cluster:
+    name: pg
