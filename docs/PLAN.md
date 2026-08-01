@@ -146,9 +146,15 @@ confidently. Deliberate progression:
    failover, rewind-free rejoin, apiserver-fence + the pooler gap.
    Stretch parked: synchronous_mode, real async-loss demo, ZooKeeper
    comparison lab, pooler callbacks
-4. Operators that package all of the above (CloudNativePG, Zalando's
-   postgres-operator — the latter is Patroni underneath) — build by hand
-   first, then appreciate what the operator automates
+4. ✅ (2026-07-31) Operators — **CloudNativePG 1.30** adopted (ADR 007),
+   running alongside the hand-built stack as its control group. Drill
+   card replayed: pooler gap closed (3min → 2s), cordon = graceful
+   evacuation, promote-on-kill in 2s, and **no fence on a 7-min
+   apiserver outage — which disproves ADR 006's premise** (the coupling
+   was Patroni's self-promoting leader model, not the k8s-API DCS).
+   Plus the capability neither stack had: S3 WAL archiving + PITR,
+   restore into a fresh cluster in 52s, RPO measured at one open WAL
+   segment. Zalando dropped — the comparison is already made.
 5. Capstone: deploy a real prebuilt Postgres-backed application stack —
    **Saleor** (e-commerce) or **Supabase** — end to end behind ingress
    with TLS
