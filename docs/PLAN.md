@@ -155,9 +155,16 @@ confidently. Deliberate progression:
    Plus the capability neither stack had: S3 WAL archiving + PITR,
    restore into a fresh cluster in 52s, RPO measured at one open WAL
    segment. Zalando dropped — the comparison is already made.
-5. Capstone: deploy a real prebuilt Postgres-backed application stack —
-   **Saleor** (e-commerce) or **Supabase** — end to end behind ingress
-   with TLS
+5. Capstone: deploy a real prebuilt Postgres-backed application stack on
+   CNPG, end to end behind the gateway with TLS. **Chosen: NetBox**
+   (IPAM/DCIM, official chart 8.3.46 with clean `externalDatabase`
+   support) — scoped in `docs/notes/capstone-scope.md`. Rejected:
+   Supabase and Immich both ship *patched* Postgres images (extensions
+   CNPG lacks), so neither would exercise the platform 7.4 adopted;
+   Saleor is viable but NetBox's data is our own infrastructure, which is
+   worth restoring — the premise Phase 8 needs.
+   Blockers first: backup bucket must outlive `pulumi destroy`;
+   app-of-apps before a fifth Application.
 
 Depends on: storage (Phase 4 CSI/local-path), ingress + cert-manager
 (Phase 5), and ideally GitOps (ArgoCD) for the capstone.
