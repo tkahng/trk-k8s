@@ -33,10 +33,10 @@ destroy: ## tear down the CLUSTER machines (backups survive — see persist-*)
 	cd $(INFRA_DIR) && $(PULUMI) destroy --yes
 
 persist-up: ## create/update the persistent data stack (backup bucket + IAM policy). Run once.
-	cd $(PERSIST_DIR) && $(PULUMI) up --yes
+	cd $(PERSIST_DIR) && $(PULUMI) stack select --create prod && $(PULUMI) up --yes
 
 persist-outputs: ## show persistent stack outputs (bucket name, policy arn)
-	@cd $(PERSIST_DIR) && $(PULUMI) stack output
+	@cd $(PERSIST_DIR) && $(PULUMI) stack select prod && $(PULUMI) stack output
 
 persist-destroy: ## DESTROYS YOUR POSTGRES BACKUPS. Not part of any lab cycle.
 	@echo "This deletes the backup bucket and every backup in it (ADR 008)."

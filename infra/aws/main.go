@@ -176,7 +176,7 @@ func main() {
 		// TRADE-OFF (ADR 007): instance-profile identity is NODE-scoped, so
 		// any pod on the node can reach the backup bucket. IRSA scopes per
 		// ServiceAccount but needs an OIDC provider kubeadm doesn't create.
-		persistent, err := pulumi.NewStackReference(ctx, "tkahng/trk-k8s-aws-persistent/prod", nil)
+		persistent, err := pulumi.NewStackReference(ctx, "organization/trk-k8s-aws-persistent/prod", nil)
 		if err != nil {
 			return err
 		}

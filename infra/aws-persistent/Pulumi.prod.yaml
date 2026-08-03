@@ -1,0 +1,4 @@
+config:
+  aws:region: us-east-1
+  aws:profile: personal-admin
+encryptionsalt: v1:hXAi/DAckQI=:v1:Ao7P4FZ8yUeUPfcb:lcr23Pm1PbxGtA9SV/dY3Ppaanh5xQ==
