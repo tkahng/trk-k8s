@@ -70,7 +70,7 @@ bootstrap: ## kubeadm + cilium on the provisioned machines (runbooks 02+03, scri
 	cluster/bootstrap.sh /tmp/trk-inventory.json $(SSH_KEY)
 
 platform: ## storage/ingress/tls/gitops addons (runbooks 04+05, scripted)
-	cluster/platform.sh
+	cluster/platform.sh --provider=azure
 
 rebuild: ## the full drill: destroy -> up -> bootstrap -> platform
 	$(MAKE) destroy

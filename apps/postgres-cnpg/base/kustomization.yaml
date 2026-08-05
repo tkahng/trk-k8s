@@ -3,4 +3,5 @@ kind: Kustomization
 resources:
   - cluster.yaml
   - pooler.yaml
-  - scheduledbackup.yaml
+# scheduledbackup.yaml is OUT until the Azure blob lab (ADR 009): a
+# ScheduledBackup against a cluster with no barmanObjectStore just errors.

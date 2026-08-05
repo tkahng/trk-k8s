@@ -6,15 +6,23 @@
 #   Cloudflare token: $CF_TOKEN_FILE (default ~/.config/trk-k8s/cloudflare-token)
 #   ArgoCD deploy key: ~/.ssh/argocd_trk_k8s
 #
-# AWS-only parts (EBS CSI) are skipped with --no-aws (on-prem/hetzner).
+# The optional cloud storage addon is chosen by the caller:
+#   --provider=azure (default) | aws | none      (on-prem/hetzner -> none)
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 export KUBECONFIG="$REPO_ROOT/kubeconfig"
 CF_TOKEN_FILE="${CF_TOKEN_FILE:-$HOME/.config/trk-k8s/cloudflare-token}"
 ARGOCD_KEY="$HOME/.ssh/argocd_trk_k8s"
-WITH_AWS=true
-[ "${1:-}" = "--no-aws" ] && WITH_AWS=false
+# Which cloud's OPTIONAL storage addon to install. The cluster layer never
+# DETECTS the provider (the inventory contract deliberately doesn't carry
+# one) — the caller names it. local-path stays the default StorageClass
+# either way, so `none` is a fully working cluster (ADR 002/003).
+PROVIDER="${PROVIDER:-azure}"
+case "${1:-}" in
+  --provider=*) PROVIDER="${1#--provider=}" ;;
+  --no-aws)     PROVIDER=none ;;   # back-compat with the pre-Azure flag
+esac
 
 helm_i() { # helm_i <release> <ns> <chart> [args...]
   local release="$1" ns="$2" chart="$3"; shift 3
@@ -45,12 +53,30 @@ echo "### storage: local-path (default StorageClass)"
 kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.36/deploy/local-path-storage.yaml > /dev/null
 kubectl patch storageclass local-path -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}' > /dev/null 2>&1 || true
 
-if $WITH_AWS; then
-  echo "### storage: EBS CSI (AWS addon)"
-  helm repo add aws-ebs-csi-driver https://kubernetes-sigs.github.io/aws-ebs-csi-driver > /dev/null 2>&1 || true
-  helm_i aws-ebs-csi-driver kube-system aws-ebs-csi-driver/aws-ebs-csi-driver
-  kubectl apply -f "$REPO_ROOT/cluster/addons/aws-ebs-csi/storageclass.yaml" > /dev/null
-fi
+case "$PROVIDER" in
+  aws)
+    echo "### storage: EBS CSI (AWS addon)"
+    helm repo add aws-ebs-csi-driver https://kubernetes-sigs.github.io/aws-ebs-csi-driver > /dev/null 2>&1 || true
+    helm_i aws-ebs-csi-driver kube-system aws-ebs-csi-driver/aws-ebs-csi-driver
+    kubectl apply -f "$REPO_ROOT/cluster/addons/aws-ebs-csi/storageclass.yaml" > /dev/null
+    ;;
+  azure)
+    echo "### storage: Azure Disk CSI (Azure addon)"
+    helm repo add azuredisk-csi-driver https://raw.githubusercontent.com/kubernetes-sigs/azuredisk-csi-driver/master/charts > /dev/null 2>&1 || true
+    # cloud=AzurePublicCloud + the node's user-assigned managed identity:
+    # the driver reaches the Azure API over IMDS with no credential in the
+    # cluster — the counterpart to EBS CSI riding the instance profile.
+    helm_i azuredisk-csi-driver kube-system azuredisk-csi-driver/azuredisk-csi-driver \
+      --set controller.replicas=1 \
+      --set linux.kubelet=/var/lib/kubelet
+    kubectl apply -f "$REPO_ROOT/cluster/addons/azure-disk-csi/storageclass.yaml" > /dev/null
+    ;;
+  none)
+    echo "### storage: no cloud addon (local-path only)"
+    ;;
+  *)
+    echo "  ERROR unknown provider '$PROVIDER' (want aws|azure|none)" >&2; exit 1 ;;
+esac
 
 echo "### metrics-server"
 helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/ > /dev/null 2>&1 || true
