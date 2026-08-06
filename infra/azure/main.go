@@ -26,6 +26,7 @@ package main
 import (
 	"fmt"
 
+	"github.com/pulumi/pulumi-azure-native-sdk/authorization/v3"
 	"github.com/pulumi/pulumi-azure-native-sdk/compute/v3"
 	"github.com/pulumi/pulumi-azure-native-sdk/managedidentity/v3"
 	"github.com/pulumi/pulumi-azure-native-sdk/network/v3"
@@ -51,46 +52,45 @@ func main() {
 		sshPublicKey := cfg.Require("sshPublicKey")
 		location := cfg.Get("location")
 		if location == "" {
-			// westus2, not eastus, for one reason: the burstable B-series is
-			// capacity-restricted in eastus but available here. The persistent
-			// resource group (Pulumi state + Key Vault) stays in eastus — and
-			// that split is a feature, not debt: state and backups living in a
-			// different region from the cluster they describe is exactly what
-			// you want when the cluster's region is what fails.
-			location = "westus2"
+			// eastus: colocated with rg-trk-k8s-persistent, and the only
+			// place a working size was actually proven. westus2 looked
+			// better on paper (B-series SKUs visible) and turned out to be
+			// a dead end — see the size comment below.
+			location = "eastus"
 		}
 
-		// 2 vCPU / 4 GiB AMD burstable — the same shape AND the same
-		// $0.0376/hr as the AWS t3a.medium this project ran on for three
-		// weeks. Three nodes come to ~$0.128/hr all in, marginally CHEAPER
-		// than AWS's ~$0.135/hr.
+		// 2 vCPU / 4 GiB AMD — uniform across all three nodes, matching the
+		// AWS t3a.medium shape so drill timings stay comparable to the
+		// baseline. NOT burstable: no burstable SKU is reachable on this
+		// subscription, and finding that out took three separate walls.
 		//
-		// Getting here took the long way round, and the history is the
-		// lesson (ADR 009 + its addendum):
-		//   1. On the FREE TRIAL this SKU failed 409 SkuNotAvailable
-		//      "Capacity Restrictions" — the whole B-series was withheld.
-		//      `az vm list-sizes` reported it available; only
-		//      `az vm list-skus`'s `restrictions` field told the truth.
-		//   2. Total Regional vCPUs was capped at 4, so three 2-core nodes
-		//      were impossible regardless of family. That forced per-role
-		//      sizing (2-core cp + two 1-core workers) as a workaround.
-		//   3. The quota-increase request was DENIED (trial subscriptions
-		//      generally are). Upgrading to pay-as-you-go lifted the cap to
-		//      10 cores per region immediately.
-		//   4. B-series remained restricted in eastus even after the
-		//      upgrade — that one is genuine REGIONAL capacity, not
-		//      entitlement — but is unrestricted in westus2. Hence the move.
+		// AZURE GATES COMPUTE AT **THREE INDEPENDENT LAYERS**, and all three
+		// must align before a VM can exist. This is the real lesson:
 		//
-		// So the earlier "capacity" failures had two different causes wearing
-		// the same error code: subscription entitlement (fixed by upgrading)
-		// and regional capacity (fixed by moving). Worth separating, because
-		// the remedies are nothing alike.
+		//   1. Total Regional vCPUs — was 4 on the free trial; pay-as-you-go
+		//      lifted it to 10 per region.
+		//   2. Per-FAMILY vCPUs — a separate counter per VM family.
+		//      `standardBasv2Family` is **0** in both eastus and westus2, so
+		//      B2als_v2 fails even with regional headroom. Note the trap:
+		//      "Standard BS Family vCPUs" shows 10, but that is B-series
+		//      *v1*, a different counter entirely.
+		//   3. SKU availability in the region — B2als_v2 is capacity-
+		//      restricted in eastus but listed in westus2 (layer 3 passes,
+		//      layer 2 still blocks); and B2s/B2ms, whose family quota IS
+		//      10, are not offered in either region at all. A family quota
+		//      can exist for SKUs that no longer ship.
 		//
-		// NOTE the safety trade that came with the upgrade: pay-as-you-go
-		// removes the spending limit that used to make overspend physically
-		// impossible. Budget alerts only notify. `make destroy` is now the
-		// only thing standing between a forgotten cluster and a real bill.
-		vmSize := "Standard_B2als_v2"
+		// So "SkuNotAvailable" and "exceeding approved quota" are different
+		// failures with different remedies (move region / raise quota), and a
+		// third state exists where quota is fine and the SKU simply isn't
+		// sold. `az vm list-sizes` sees none of this; `az vm list-skus`
+		// --all=false covers layer 3 only; `az vm list-usage` covers 1 and 2.
+		//
+		// D2als_v7: Dalsv7 family quota 10, unrestricted in eastus, proven
+		// deployed. $0.0804/hr each -> ~$0.256/hr all in, versus AWS's
+		// ~$0.135/hr. Roughly 1.9x for identical specs, because the cheap
+		// burstable tier is simply out of reach here.
+		vmSize := "Standard_D2als_v7"
 
 		// Same address plan as the AWS and Hetzner layouts, so the cluster/
 		// runbooks and Cilium's k8sServiceHost are unchanged.
@@ -126,6 +126,38 @@ func main() {
 			ResourceGroupName: rg.Name,
 			Location:          rg.Location,
 			Tags:              tags,
+		})
+		if err != nil {
+			return err
+		}
+
+		// Let the nodes write Postgres backups to the blob container in the
+		// PERSISTENT resource group. This is the Azure counterpart to AWS's
+		// "attach a managed policy to the node instance profile" — barman
+		// reaches storage over IMDS as this identity, with no credential in
+		// the cluster.
+		//
+		// Scoped to the CONTAINER, not the storage account: the same account
+		// also holds Pulumi state, and the nodes have no business there.
+		// Tighter than the AWS version, which granted bucket-level access.
+		//
+		// Role: Storage Blob Data Contributor (built-in, fixed GUID). The
+		// service principal needs "Role Based Access Control Administrator"
+		// to create this — Contributor alone cannot grant roles, which is
+		// why foundation.sh assigns both.
+		backupScope := pulumi.Sprintf(
+			"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s/blobServices/default/containers/%s",
+			cfg.Require("subscriptionId"), cfg.Require("persistRg"),
+			cfg.Require("backupStorageAccount"), cfg.Require("backupContainer"))
+		_, err = authorization.NewRoleAssignment(ctx, "node-blob-backups", &authorization.RoleAssignmentArgs{
+			Scope:       backupScope,
+			PrincipalId: nodeIdentity.PrincipalId,
+			// managed identities need this hint, or the assignment can race
+			// Entra replication and fail with PrincipalNotFound
+			PrincipalType: pulumi.String(authorization.PrincipalTypeServicePrincipal),
+			RoleDefinitionId: pulumi.Sprintf(
+				"/subscriptions/%s/providers/Microsoft.Authorization/roleDefinitions/ba92f5b4-2d11-453d-a403-e96b0029c9fe",
+				cfg.Require("subscriptionId")),
 		})
 		if err != nil {
 			return err
@@ -306,6 +338,9 @@ func main() {
 		ctx.Export("nodes", inventory)
 		ctx.Export("resource-group", rg.Name)
 		ctx.Export("node-identity-client-id", nodeIdentity.ClientId)
+		// What CNPG's barmanObjectStore destinationPath must point at.
+		ctx.Export("pg-backup-url", pulumi.Sprintf("https://%s.blob.core.windows.net/%s",
+			cfg.Require("backupStorageAccount"), cfg.Require("backupContainer")))
 		return nil
 	})
 }

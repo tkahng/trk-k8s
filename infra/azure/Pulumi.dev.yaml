@@ -3,4 +3,8 @@ encryptedkey: bTRKNFptMDRkaEc3QjdxbGpPY3BMTTNMa2lqUjFmeXhTQjVfYlphZnRqRERibHJwRV
 config:
   trk-k8s-azure:myIp: 45.50.96.187/32
   trk-k8s-azure:sshPublicKey: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGOB9MhkVD2cuSSycPIqiSna0oSbTfbHc9/6/tBBy7Xw tkahng-k8s-azure
-  azure-native:location: westus2
+  azure-native:location: eastus
+  trk-k8s-azure:subscriptionId: 85f3b630-afa5-42cf-b8b3-b06abbf5a28f
+  trk-k8s-azure:persistRg: rg-trk-k8s-persistent
+  trk-k8s-azure:backupStorageAccount: sttrkk8sf92a7ab3
+  trk-k8s-azure:backupContainer: pg-backups

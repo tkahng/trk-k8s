@@ -38,6 +38,7 @@ SUFFIX="$(printf '%s' "$SUB_ID" | shasum | cut -c1-8)"
 SA_NAME="sttrkk8s${SUFFIX}"        # 3-24 chars, lowercase alphanumeric only
 KV_NAME="kv-trk-k8s-${SUFFIX}"     # 3-24 chars, alphanumeric + hyphens
 STATE_CONTAINER="pulumi-state"
+BACKUP_CONTAINER="pg-backups"
 KV_KEY_NAME="pulumi-secrets"
 
 mkdir -p "$CONF_DIR"
@@ -109,14 +110,19 @@ az storage account blob-service-properties update \
 echo "  versioning + 30d soft delete on"
 
 SA_KEY="$(az storage account keys list -n "$SA_NAME" -g "$RG_PERSIST" --query '[0].value' -o tsv)"
-if ! az storage container show -n "$STATE_CONTAINER" \
-      --account-name "$SA_NAME" --account-key "$SA_KEY" >/dev/null 2>&1; then
-  az storage container create -n "$STATE_CONTAINER" \
-    --account-name "$SA_NAME" --account-key "$SA_KEY" >/dev/null
-  echo "  created container $STATE_CONTAINER"
-else
-  echo "  container $STATE_CONTAINER exists"
-fi
+# Two containers, same account, same lifecycle: both must outlive every
+# cluster. pg-backups is what barman-cloud archives WAL and base backups to
+# (the AWS equivalent died with its account — ADR 008/009).
+for c in "$STATE_CONTAINER" "$BACKUP_CONTAINER"; do
+  if ! az storage container show -n "$c" \
+        --account-name "$SA_NAME" --account-key "$SA_KEY" >/dev/null 2>&1; then
+    az storage container create -n "$c" \
+      --account-name "$SA_NAME" --account-key "$SA_KEY" >/dev/null
+    echo "  created container $c"
+  else
+    echo "  container $c exists"
+  fi
+done
 
 echo "### key vault as pulumi's secrets provider"
 if ! az keyvault show -n "$KV_NAME" >/dev/null 2>&1; then
@@ -191,6 +197,9 @@ export AZURE_TENANT_ID=$TENANT_ID
 export TRK_RG_PERSIST=$RG_PERSIST
 export TRK_SA_NAME=$SA_NAME
 export TRK_STATE_CONTAINER=$STATE_CONTAINER
+export TRK_BACKUP_CONTAINER=$BACKUP_CONTAINER
+# CNPG barmanObjectStore destinationPath
+export TRK_BACKUP_URL=https://$SA_NAME.blob.core.windows.net/$BACKUP_CONTAINER
 export TRK_KV_NAME=$KV_NAME
 # Pulumi state backend + secrets provider
 export AZURE_STORAGE_ACCOUNT=$SA_NAME
@@ -213,6 +222,8 @@ cat <<EOF
 ### Foundation ready. State and secrets now outlive every cluster.
   storage account : $SA_NAME (versioned, 30d soft delete)
   state container : $STATE_CONTAINER
+  backup container: $BACKUP_CONTAINER
+  backup url      : https://$SA_NAME.blob.core.windows.net/$BACKUP_CONTAINER
   key vault       : $KV_NAME  key: $KV_KEY_NAME
   service princ.  : sp-trk-k8s-pulumi -> $SP_FILE
   lock            : CanNotDelete on $RG_PERSIST

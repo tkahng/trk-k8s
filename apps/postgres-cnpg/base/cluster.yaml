@@ -46,20 +46,36 @@ spec:
     # 7.1, on purpose. The operator's replica re-init story meets
     # local storage in the node-loss drill.
 
-  # BACKUPS ARE OFF pending the Azure blob lab (ADR 009).
+  # THE capability neither stack had before 7.4, now ported to Azure.
+  # Drill 3 proved etcd snapshots don't cover PV data; 7.1 proved a
+  # `destroy` takes the database with it. The AWS version measured a real
+  # restore at RPO = one open WAL segment (exactly 1 row of 660) before the
+  # account — and every byte in it — was lost. This is that capability
+  # rebuilt on blob storage.
   #
-  # This block used to be the 7.4 payoff: barmanObjectStore ->
-  # s3://trk-k8s-pg-backups with inheritFromIAMRole, WAL archiving, PITR,
-  # and a restore measured at RPO = one open WAL segment. All of it pointed
-  # at an AWS account we no longer have, so leaving it configured would only
-  # produce a cluster stuck reporting archive failures.
-  #
-  # The port is real but is its own lab, exactly as it was on AWS: CNPG
-  # supports azureCredentials with inheritFromAzureAD, so it needs
-  #   1. a blob container in rg-trk-k8s-persistent
-  #   2. a role assignment (Storage Blob Data Contributor) for the node
-  #      identity id-trk-k8s-node, which infra/azure already creates for
-  #      precisely this
-  #   3. destinationPath: https://<account>.blob.core.windows.net/<container>
-  # Until then the cluster runs unprotected — same state as 7.1-7.3, and
-  # the measured RPO result stands as a finding even though the data is gone.
+  # Two mechanisms, both barman-cloud inside the instance:
+  #   - WAL archiving: every closed segment ships to blob. What makes
+  #     point-in-time recovery possible at all.
+  #   - Base backups: periodic full copies (scheduledbackup.yaml); recovery
+  #     = nearest base backup + replay WAL forward.
+  backup:
+    retentionPolicy: 7d
+    barmanObjectStore:
+      # The container lives in rg-trk-k8s-persistent, which carries a
+      # CanNotDelete lock — so backups survive `make destroy` by platform
+      # enforcement, not by convention (ADR 008/009).
+      destinationPath: https://sttrkk8sf92a7ab3.blob.core.windows.net/pg-backups
+      azureCredentials:
+        # No credential Secret anywhere. The node's user-assigned managed
+        # identity (id-trk-k8s-node) holds Storage Blob Data Contributor on
+        # this container, and barman reaches it over IMDS — the Azure
+        # counterpart to AWS's inheritFromIAMRole.
+        # TRADE-OFF unchanged from ADR 007: identity is NODE-scoped, so any
+        # pod on the node could reach the container. Workload Identity would
+        # scope per-ServiceAccount but needs an OIDC issuer kubeadm doesn't
+        # publish.
+        inheritFromAzureAD: true
+      wal:
+        compression: gzip
+      data:
+        compression: gzip
