@@ -161,7 +161,7 @@
 
 <header class="site">
   <div class="wrap">
-    <p class="eyebrow">trk-k8s · field notes · jul 13 – aug 1, 2026</p>
+    <p class="eyebrow">trk-k8s · field notes · jul 13 – aug 5, 2026</p>
     <h1>Lessons learned building a Kubernetes cluster from scratch</h1>
     <p class="lede">
       Everything the journal taught us, distilled from twelve dated entries — six days
@@ -169,10 +169,10 @@
       Gateway API edge. Each lesson is tagged with how it was earned.
     </p>
     <div class="chips">
-      <span class="chip"><b>17</b> journal entries</span>
+      <span class="chip"><b>18</b> journal entries</span>
       <span class="chip"><b>9</b> drills</span>
-      <span class="chip"><b>7</b> ADRs</span>
-      <span class="chip"><b>82</b> lessons + 6 meta-patterns</span>
+      <span class="chip"><b>9</b> ADRs</span>
+      <span class="chip"><b>99</b> lessons + 7 meta-patterns</span>
     </div>
     <div class="legend">
       <span class="item"><span class="pill bitten">bitten</span> an incident taught it the hard way</span>
@@ -191,6 +191,7 @@
     <a href="#network">Networking &amp; edge</a>
     <a href="#gitops">GitOps &amp; secrets</a>
     <a href="#state">State &amp; storage</a>
+    <a href="#migration">Changing clouds</a>
     <a href="#ha">Postgres HA</a>
     <a href="#craft">Operator craft</a>
   </div>
@@ -238,6 +239,14 @@
         RECONNECT into two pgbouncer pods" is a lesson. An operator's value isn't that it works — it's
         which problems it makes structurally impossible, and that list is only visible from the far side
         of having had them.</p>
+      </div>
+      <div class="meta-card">
+        <h3>An abstraction is a hypothesis until something tests it</h3>
+        <p>The provider-agnostic seam was designed on day one and believed for three weeks. Losing the AWS
+        account forced the experiment: <code>cluster/</code> unchanged, <code>bootstrap.sh</code> working on
+        Azure first try. What earned it wasn't cleverness — it was carrying <code>sshUser</code> as data,
+        pinning the address plan, and refusing to install a cloud-controller-manager. Discipline you can't
+        evaluate until the day you need it.</p>
       </div>
     </div>
   </div>
@@ -651,6 +660,162 @@
   </div>
 </section>
 
+<!-- ============ MIGRATION ============ -->
+<section id="migration">
+  <div class="wrap">
+    <h2>Changing clouds — what the migration taught</h2>
+    <p class="section-sub">AWS account access was lost on 2026-08-05, taking the Pulumi state backend and
+    every Postgres backup with it. The forced rebuild on Azure became the only real test the
+    provider-agnostic design ever got.</p>
+    <div class="lessons">
+      <div class="lesson">
+        <div class="claim">The abstraction held — and the thing we <em>didn't</em> build is why.</div>
+        <div class="story">Changed: the Makefile header and a new <code>infra/azure/</code>. Unchanged:
+        prep-node, bootstrap, every Cilium and gateway value, all of apps/ and gitops/.
+        <code>make bootstrap</code> brought up v1.36.3 on Azure first try. Three earlier calls earned it —
+        the contract carrying <code>sshUser</code> as <em>data</em>, an identically pinned address plan, and
+        ADR 003's refusal to install a cloud-controller-manager. Three weeks of resisting the convenient
+        option paid off in one afternoon, because there was no cloud integration to port.</div>
+        <div class="src"><span>aug 5 · ADR 009</span><span class="pill drilled">drilled</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Every cloud answers the firewall question differently.</div>
+        <div class="story">Hetzner filtered only the public interface, leaving private traffic open. AWS
+        denied <em>everything</em> including node-to-node, forcing an explicit self-referencing rule. Azure
+        permits all intra-VNet traffic by default (built-in <code>AllowVnetInBound</code>), so that rule has
+        no counterpart — etcd, kubelet and VXLAN work with nothing declared. Three clouds, three answers,
+        and the seam absorbed all of it.</div>
+        <div class="src"><span>jul 13 → aug 5</span><span class="pill observed">observed</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">A provider listing a product ≠ having capacity for you. Now 4-for-4.</div>
+        <div class="story">Hetzner had no CX23s. AWS held a new account's third instance for
+        <code>PendingVerification</code>. Azure capacity-restricts the <em>entire</em> B-series on trial
+        subscriptions, then caps Total Regional vCPUs at 4 — identical in every region checked, so
+        relocating doesn't help. Four occurrences of one lesson across three clouds.</div>
+        <div class="src"><span>aug 5 · ADR 009</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">The tool that lists sizes is not the tool that knows what you can have.</div>
+        <div class="story"><code>az vm list-sizes</code> cheerfully reports <code>Standard_B2als_v2</code> as
+        available in eastus. Creating it fails <code>409 SkuNotAvailable</code>. Only
+        <code>az vm list-skus</code>'s <code>restrictions</code> field tells the truth: of <b>522</b> SKUs
+        visible, just <b>16</b> two-vCPU sizes are usable. Availability and entitlement are different
+        questions, and only one API answers the second.</div>
+        <div class="src"><span>aug 5 · ADR 009</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Quota shapes architecture: per-role VM sizing.</div>
+        <div class="story">Three 2-core nodes need 6 vCPUs; the cap is 4. The fix keeps the whole topology
+        inside it — a 2-core control plane (kubeadm's NumCPU preflight <em>requires</em> 2) plus two 1-core
+        workers, every node still 4 GiB. AWS used three identical machines; heterogeneous sizing is arguably
+        closer to real practice anyway. Sequencing trap: at exactly 4/4 cores, shrinking one node and
+        creating another in a single <code>pulumi up</code> deadlocks — targeted-destroy first.</div>
+        <div class="src"><span>aug 5 · ADR 009</span><span class="pill decided">decided</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Hand-made bootstrap knowledge dies with the account.</div>
+        <div class="story">The AWS Pulumi state bucket was created by hand and documented only in a journal
+        sentence. When access vanished, so did every trace of how it had been set up. The Azure equivalent is
+        <code>infra/azure/foundation.sh</code> — a script that creates the locked resource group, versioned
+        state storage, Key Vault, service principal and SSH key, idempotently. The chicken-and-egg layer
+        deserves code precisely <em>because</em> Pulumi can't manage it.</div>
+        <div class="src"><span>aug 5 · ADR 009</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Put the secrets provider in the cloud, not on the laptop.</div>
+        <div class="story">The AWS setup warned in its own notes that losing
+        <code>~/.config/pulumi/trk-k8s.passphrase</code> would make stack secrets unrecoverable. Azure Key
+        Vault replaces it. The <code>encryptedkey</code> in the stack file is safe to commit — it's the data
+        key encrypted <em>by</em> the vault key, useless without vault access.</div>
+        <div class="src"><span>aug 5 · ADR 009</span><span class="pill decided">decided</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">A fresh Azure subscription has almost nothing registered.</div>
+        <div class="story">Resource providers (Storage, KeyVault, Compute, Network, ManagedIdentity) are
+        <code>NotRegistered</code> by default, and creating an unregistered type fails with an error that
+        reads like a permissions problem. Registration is async, per-subscription and permanent — do it once,
+        up front, and wait for it.</div>
+        <div class="src"><span>aug 5</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Azure's spending limit is better protection than AWS ever offered.</div>
+        <div class="story">On a free trial it's ON by default and <em>disables resources</em> rather than
+        charging the card when credits run out. Azure repeatedly invites you to remove it; don't. Budgets, by
+        contrast, only notify — the same lesson the AWS "$1 zero-spend budget" taught, relearned. And credits
+        expire <b>30 days from signup regardless of use</b>, so the clock binds before the money does.</div>
+        <div class="src"><span>aug 5</span><span class="pill observed">observed</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Least privilege only teaches you something when it actually bites.</div>
+        <div class="story">On AWS, PowerUserAccess genuinely couldn't call <code>iam:*</code> — which forced a
+        second admin identity and taught the <code>iam:PassRole</code> lesson. On a personal Azure tenant,
+        splitting owner from admin gives two identities with <em>identical</em> powers, because Conditional
+        Access and PIM need Entra ID P2. The separation worth having is human-vs-automation: Pulumi runs as a
+        service principal, never as you. Skip the ceremony that has no mechanism behind it.</div>
+        <div class="src"><span>aug 5</span><span class="pill decided">decided</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Contributor cannot grant roles.</div>
+        <div class="story">The Pulumi service principal needs <b>Role Based Access Control Administrator</b>
+        alongside Contributor, because the node's managed identity requires a role assignment and Contributor
+        can't create one. Both together are still narrower than Owner.</div>
+        <div class="src"><span>aug 5</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Hardening has a floor: the tool has to still work.</div>
+        <div class="story">Shared-key access stays <em>enabled</em> on the state storage account because
+        Pulumi's <code>azblob</code> backend authenticates with an account key; disabling it would harden the
+        backend into uselessness. Everything else got locked down — no public blob access, TLS 1.2 floor,
+        HTTPS only, versioning plus 30-day soft delete, since state corruption is recoverable and state
+        deletion is not.</div>
+        <div class="src"><span>aug 5</span><span class="pill decided">decided</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Azure models the lifecycle boundary natively.</div>
+        <div class="story">ADR 008 needed a second Pulumi stack and a <code>StackReference</code> to stop
+        backups dying with the cluster. Azure expresses the same idea as two resource groups, one carrying a
+        <code>CanNotDelete</code> lock the platform itself enforces — stronger than
+        <code>ForceDestroy: false</code>, and an object rather than a convention.</div>
+        <div class="src"><span>aug 5 · ADR 008/009</span><span class="pill observed">observed</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">A typed SDK turns deploy-time failures into compile errors.</div>
+        <div class="story">Three enum names were not what they looked like —
+        <code>IPAllocationMethodStatic</code> not <code>Ip…</code>,
+        <code>DiskStorageAccountTypes_StandardSSD_LRS</code> not <code>StorageAccountTypes…</code>. The
+        compiler caught all three before a single API call. Worth remembering next time the
+        Pulumi-vs-YAML question comes up.</div>
+        <div class="src"><span>aug 5</span><span class="pill observed">observed</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">On an unfamiliar cloud, verify the layer before blaming it.</div>
+        <div class="story">ArgoCD's controller reported <code>no route to host</code> to its repo-server —
+        exactly what a broken overlay on a new cloud would look like. It was the repo-server still starting.
+        <code>cilium-dbg node list</code> showing all three nodes with correct CIDRs is what ruled out a real
+        problem. Drill 2's lesson for the fourth time: not every error is real, some are just <em>too
+        early</em>.</div>
+        <div class="src"><span>aug 5</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">File-driven secrets survive a cloud losing you.</div>
+        <div class="story">The Cloudflare token, Postgres password and ArgoCD deploy key all came back
+        untouched, because none were ever AWS-dependent. TLS issued and GitOps reconnected with no
+        intervention — the Phase 5 "secrets from local files, never git" discipline paying a dividend nobody
+        designed it for.</div>
+        <div class="src"><span>aug 5</span><span class="pill observed">observed</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Teardown stopped being tidiness and became budget.</div>
+        <div class="story">Azure costs ~$0.232/hr against AWS's ~$0.135 because the cheap burstable family is
+        unavailable. A 3-hour lab is ~$0.70, but a month of uptime would consume essentially the entire $200
+        credit. The same <code>make destroy</code> habit, with materially higher stakes.</div>
+        <div class="src"><span>aug 5 · ADR 009</span><span class="pill observed">observed</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
 <!-- ============ HA / POSTGRES ============ -->
 <section id="ha">
   <div class="wrap">
@@ -904,10 +1069,10 @@
 
 <footer class="site">
   <div class="wrap">
-    <p>Distilled from <span class="mono">docs/journal/</span> (17 entries, 2026-07-13 → 2026-08-01)
+    <p>Distilled from <span class="mono">docs/journal/</span> (18 entries, 2026-07-13 → 2026-08-05)
     and <span class="mono">docs/decisions/</span> (ADR 001–005). Companion page:
     <span class="mono">docs/architecture.html</span> — the diagrams these lessons were earned on.
-    Current as of Phase 7.4 (ADR 007). Only the capstone (7.5) remains in Phase 7.</p>
+    Current as of the AWS→Azure migration, 2026-08-05 (ADR 009). Phase 7.5 (NetBox capstone) resumes from here.</p>
   </div>
 </footer>
 

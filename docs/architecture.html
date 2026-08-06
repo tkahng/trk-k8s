@@ -277,12 +277,12 @@
     </p>
     <div class="chips">
       <span class="chip"><b>k8s</b> v1.36.3</span>
-      <span class="chip"><b>3×</b> t3a.medium · us-east-1</span>
+      <span class="chip"><b>Azure</b> eastus · D2als_v7 + 2× F1as_v7</span>
       <span class="chip"><b>CNI</b> Cilium 1.19.4 (eBPF, no kube-proxy)</span>
       <span class="chip"><b>edge</b> Gateway API · Envoy :30443</span>
       <span class="chip"><b>rebuild</b> ~8 min, hands-off</span>
       <span class="chip"><b>postgres</b> hand-built + CloudNativePG 1.30</span>
-      <span class="chip"><b>backups</b> S3 WAL · RPO 1 segment</span>
+      <span class="chip"><b>portability</b> proven: AWS→Azure, cluster/ unchanged</span>
     </div>
   </div>
 </header>
@@ -317,73 +317,108 @@
         </div>
       </div>
 
-      <div class="conn"><span class="lbl">22 · 6443 · 30080 · 30443 — from admin IP only</span><span class="wire"></span></div>
+      <div class="conn"><span class="lbl">22 · 6443 · 30080 · 30443 — from admin IP only (NSG priorities 100–130)</span><span class="wire"></span></div>
+
+      <div class="zone">
+        <span class="tag">rg-trk-k8s-persistent · LOCKED CanNotDelete · never in a lab cycle</span>
+        <div class="grid-3">
+          <div class="box ghost"><div class="t">Pulumi state</div><div class="d">storage account sttrkk8s… <br>container pulumi-state<br>versioned · 30d soft delete</div></div>
+          <div class="box ghost"><div class="t">Key Vault</div><div class="d">kv-trk-k8s-… key pulumi-secrets<br><b>secrets provider</b> — replaces the passphrase file that was unrecoverable if lost</div></div>
+          <div class="box ghost"><div class="t">sp-trk-k8s-pulumi</div><div class="d">service principal<br>Contributor + RBAC Admin<br>Pulumi runs as automation, never as the human</div></div>
+        </div>
+        <p class="callout" style="margin:12px 0 0">
+          <b>ADR 008's lifecycle boundary is native here.</b> On AWS it took a second Pulumi stack and a
+          <span class="mono">StackReference</span> to keep data from dying with the cluster. Azure models it as
+          two resource groups, and the <span class="mono">CanNotDelete</span> lock is enforced by the platform
+          rather than by convention. Created once by <span class="mono">infra/azure/foundation.sh</span> —
+          a script this time, because the AWS equivalent was hand-made, documented only in prose, and that
+          knowledge died with the account.
+        </p>
+      </div>
 
       <div class="zone accent">
-        <span class="tag">AWS · us-east-1 · Pulumi stack “dev”</span>
+        <span class="tag">rg-trk-k8s-dev · Azure eastus · Pulumi stack “dev” · DISPOSABLE</span>
         <div class="zone">
-          <span class="tag">VPC k8s-vpc · 10.0.0.0/16</span>
+          <span class="tag">vnet-trk-k8s · 10.0.0.0/16</span>
           <div class="row" style="margin-bottom:12px">
-            <div class="box" style="flex:0 1 240px">
-              <div class="t">Internet gateway</div>
-              <div class="d">k8s-igw · route 0.0.0.0/0</div>
+            <div class="box" style="flex:1 1 300px">
+              <div class="t">nsg-trk-k8s</div>
+              <div class="d">4 rules, numeric priorities · <b>no node-to-node rule needed</b><br>Azure's built-in AllowVnetInBound (65000) already permits intra-VNet traffic</div>
             </div>
-            <div class="box" style="flex:1 1 320px">
-              <div class="t">Security group k8s-sg</div>
-              <div class="d">edge rules below · self-rule for all node-to-node traffic</div>
+            <div class="box ghost" style="flex:1 1 260px">
+              <div class="t">id-trk-k8s-node</div>
+              <div class="d">user-assigned managed identity<br>Azure Disk CSI + (later) blob backups over IMDS — no credential in the cluster</div>
             </div>
           </div>
           <div class="zone">
-            <span class="tag">public subnet k8s-nodes · 10.0.1.0/24</span>
+            <span class="tag">snet-nodes · 10.0.1.0/24 — each node is THREE resources</span>
             <div class="grid-3">
               <div class="box node">
                 <div class="t">k8s-cp-1</div>
-                <div class="d">control-plane<br>10.0.1.10 · t3a.medium<br>Ubuntu 24.04</div>
+                <div class="d">control-plane · 10.0.1.10<br><b>D2als_v7</b> 2 vCPU / 4 GiB<br>pip + nic + vm · Ubuntu 24.04</div>
               </div>
               <div class="box node">
                 <div class="t">k8s-worker-1</div>
-                <div class="d">worker<br>10.0.1.11 · t3a.medium<br>Ubuntu 24.04</div>
+                <div class="d">worker · 10.0.1.11<br><b>F1as_v7</b> 1 vCPU / 4 GiB<br>pip + nic + vm · Ubuntu 24.04</div>
               </div>
               <div class="box node">
                 <div class="t">k8s-worker-2</div>
-                <div class="d">worker<br>10.0.1.12 · t3a.medium<br>Ubuntu 24.04</div>
-              </div>
-            </div>
-            <div class="row" style="margin-top:12px">
-              <div class="box ghost">
-                <div class="t" style="font-size:13px">Node IAM instance profile</div>
-                <div class="d">EBS CSI permissions · IMDSv2 with hop limit 3 (pods need the extra hop — found via Hubble)</div>
+                <div class="d">worker · 10.0.1.12<br><b>F1as_v7</b> 1 vCPU / 4 GiB<br>pip + nic + vm · Ubuntu 24.04</div>
               </div>
             </div>
           </div>
         </div>
       </div>
+      <p class="callout" style="margin-bottom:0">
+        <b>Why the sizes are uneven — quota, not preference.</b> <span class="mono">Standard_B2als_v2</span> was
+        the perfect match (burstable, 2 vCPU/4 GiB, <span class="mono">$0.0376/hr</span> — identical to
+        t3a.medium in shape <i>and</i> price) but the entire B-series is capacity-restricted on a trial
+        subscription. <span class="mono">az vm list-sizes</span> reports it available; only
+        <span class="mono">az vm list-skus</span>'s <span class="mono">restrictions</span> field tells the truth —
+        <b>16 of 522</b> visible SKUs are actually usable. Then <b>Total Regional vCPUs is capped at 4</b>
+        (identical in eastus, westus2, centralus, eastus2 — relocating doesn't help), so three 2-core nodes
+        were impossible. The fix keeps the full topology inside 4 cores: a 2-core control plane (kubeadm's
+        NumCPU preflight <i>requires</i> 2) plus two 1-core workers, every node still 4 GiB.
+        <b>Phase 1's lesson, third and fourth occurrence:</b> a provider listing a product is not the same as
+        having capacity for you.
+      </p>
     </div>
 
-    <h3 class="band">security group — every ingress rule</h3>
+    <h3 class="band">nsg-trk-k8s — every inbound rule</h3>
     <div class="tbl-scroll">
       <table>
-        <thead><tr><th>Port</th><th>Source</th><th>Purpose</th></tr></thead>
+        <thead><tr><th>Priority</th><th>Port</th><th>Source</th><th>Purpose</th></tr></thead>
         <tbody>
-          <tr><td class="mono">22</td><td>admin IP /32</td><td>SSH for bootstrap &amp; drills</td></tr>
-          <tr><td class="mono">6443</td><td>admin IP /32</td><td>kube-apiserver (kubectl from the laptop)</td></tr>
-          <tr><td class="mono">30080 / 30443</td><td>admin IP /32</td><td>HTTP/HTTPS edge — Envoy gateway (formerly ingress-nginx NodePorts)</td></tr>
-          <tr><td class="mono">all</td><td>the SG itself</td><td>node-to-node: etcd, kubelet, VXLAN, everything cluster-internal</td></tr>
+          <tr><td class="mono">100</td><td class="mono">22</td><td>admin IP /32</td><td>SSH for bootstrap &amp; drills</td></tr>
+          <tr><td class="mono">110</td><td class="mono">6443</td><td>admin IP /32</td><td>kube-apiserver (kubectl from the laptop)</td></tr>
+          <tr><td class="mono">120 / 130</td><td class="mono">30080 / 30443</td><td>admin IP /32</td><td>HTTP/HTTPS edge — hostNetwork Envoy</td></tr>
+          <tr><td class="mono">65000</td><td class="mono">all</td><td>VirtualNetwork <span class="pill accent">built in</span></td><td>node-to-node: etcd, kubelet, VXLAN — <b>nothing declared</b></td></tr>
         </tbody>
       </table>
     </div>
     <p class="callout">
-      <b>The firewall was never opened to the world.</b> Real TLS certificates still work
-      because cert-manager proves domain ownership with DNS-01 records on Cloudflare —
-      Let’s Encrypt never needs to reach the cluster.
+      <b>Three clouds, three different answers to the same question.</b> Hetzner firewalls filtered only the
+      public interface, so private traffic was unfiltered. AWS security groups denied <i>everything</i>
+      including node-to-node, which forced an explicit self-referencing rule. Azure allows all intra-VNet
+      traffic by default, so that rule has no counterpart at all. This is precisely the class of difference
+      ADR 002 said the inventory seam existed to absorb — and the reason
+      <span class="mono">cluster/</span> never had to know.
     </p>
-
+    <p class="callout">
+      <b>The firewall was never opened to the world.</b> Real TLS still works because cert-manager proves
+      ownership with DNS-01 records on Cloudflare — Let's Encrypt never reaches the cluster. On migration day
+      the wildcard cert issued in ~2.5 minutes, <i>before</i> the DNS A record was even repointed.
+    </p>
     <h3 class="band">the seam — one contract, any provider</h3>
     <div class="board">
       <div class="row">
         <div class="box">
-          <div class="t">infra/aws <span class="pill ok">active</span></div>
-          <div class="d">VPC · subnet · SG · 3× EC2<br>Pulumi Go</div>
+          <div class="t">infra/azure <span class="pill ok">active</span></div>
+          <div class="d">2 resource groups · VNet · NSG<br>3× (pip + nic + vm) · managed identity</div>
+        </div>
+        <div class="box parked">
+          <div class="t">infra/aws <span class="pill parked">dead</span></div>
+          <div class="d">VPC · subnet · SG · 3× EC2<br>account access lost 2026-08-05<br>kept as reference (ADR 009)</div>
         </div>
         <div class="box parked">
           <div class="t">infra/hetzner <span class="pill parked">parked</span></div>
@@ -489,69 +524,35 @@
       </div>
     </div>
 
-    <h3 class="band">backups — the first thing in this project that outlives the cluster</h3>
+    <h3 class="band">backups — proven on AWS, awaiting an Azure port</h3>
     <div class="board">
       <div class="steps">
         <div class="step"><div class="t">pg primary</div><div class="d">WAL segment closes</div></div>
         <span class="step-arrow">→</span>
         <div class="step"><div class="t">barman-cloud</div><div class="d">in the instance · gzip</div></div>
         <span class="step-arrow">→</span>
-        <div class="step"><div class="t">node IAM role</div><div class="d">IMDS · inheritFromIAMRole<br>no Secret in-cluster</div></div>
+        <div class="step"><div class="t">managed identity</div><div class="d">IMDS · inheritFromAzureAD<br><b>to be wired</b></div></div>
         <span class="step-arrow">→</span>
-        <div class="step"><div class="t">s3://trk-k8s-pg-backups</div><div class="d">WAL + 6h base backups</div></div>
+        <div class="step"><div class="t">Azure Blob</div><div class="d">container in the locked RG<br><b>not yet created</b></div></div>
         <span class="step-arrow">→</span>
-        <div class="step"><div class="t">restore</div><div class="d">into a cluster that never existed<br>52s · RPO = open WAL segment</div></div>
+        <div class="step"><div class="t">restore</div><div class="d">measured on AWS: 52s<br>RPO = open WAL segment</div></div>
       </div>
       <p class="callout" style="margin-bottom:0">
-        <b>Two warnings earned the hard way.</b> <span class="mono">archived_count</span> climbed to 15
-        and the cluster reported “Continuous archiving is working” while the bucket was <b>empty</b> —
-        CNPG's archive command exits 0 with no destination configured, so the only honest check is
-        listing the bucket. And the bucket currently lives in the node Pulumi stack with
-        <span class="mono">ForceDestroy</span>, so <span class="mono">pulumi destroy</span> reaps the
-        backups — fine same-session, fatal for Phase 8's rebuild-with-state drill.
+        <b>Currently OFF.</b> The 7.4 backup lab archived to <span class="mono">s3://trk-k8s-pg-backups</span>
+        with <span class="mono">inheritFromIAMRole</span>, and measured a restore into a cluster that never
+        existed at <b>exactly one row lost of 660</b> — the RPO is the currently-open WAL segment. The bucket
+        and the account are both gone, so the config was removed rather than left failing. CNPG supports
+        <span class="mono">azureCredentials</span> with <span class="mono">inheritFromAzureAD</span>, and
+        <span class="mono">id-trk-k8s-node</span> exists for exactly this; the port needs a blob container and
+        a Storage Blob Data Contributor assignment. Its own lab, as it was on AWS.
       </p>
-    </div>
-
-    <h3 class="band">request path — https</h3>
-    <div class="board">
-      <div class="steps">
-        <div class="step"><div class="t">Client</div><div class="d">hello.k8s.kahng.dev:30443</div></div>
-        <span class="step-arrow">→</span>
-        <div class="step"><div class="t">DNS</div><div class="d">Cloudflare → node public IP</div></div>
-        <span class="step-arrow">→</span>
-        <div class="step"><div class="t">Envoy</div><div class="d">hostNetwork :30443 · TLS via wildcard cert</div></div>
-        <span class="step-arrow">→</span>
-        <div class="step"><div class="t">HTTPRoute</div><div class="d">Gateway API match</div></div>
-        <span class="step-arrow">→</span>
-        <div class="step"><div class="t">Service</div><div class="d">Cilium eBPF (no kube-proxy)</div></div>
-        <span class="step-arrow">→</span>
-        <div class="step"><div class="t">Pod</div><div class="d">hello / whoami</div></div>
-      </div>
-    </div>
-
-    <h3 class="band">data path — postgres</h3>
-    <div class="board">
-      <div class="steps">
-        <div class="step"><div class="t">App client</div><div class="d">many short-lived conns</div></div>
-        <span class="step-arrow">→</span>
-        <div class="step"><div class="t">pgbouncer Service</div><div class="d">VIP · :6432</div></div>
-        <span class="step-arrow">→</span>
-        <div class="step"><div class="t">pgbouncer ×2</div><div class="d">pool — drilled: 5 clients over a pool of 2, all succeed</div></div>
-        <span class="step-arrow">→</span>
-        <div class="step"><div class="t">leader Service</div><div class="d">whoever leads <i>right now</i><br>written by Patroni / the operator</div></div>
-        <span class="step-arrow">→</span>
-        <div class="step"><div class="t">primary</div><div class="d">the only member accepting writes</div></div>
-        <span class="step-arrow">→</span>
-        <div class="step"><div class="t">PVC 5Gi</div><div class="d">local-path — one per member; replication, not storage, syncs them</div></div>
-      </div>
       <p class="callout" style="margin-bottom:0">
-        <b>Why every hop exists:</b> the client's connection string never changes, through role
-        swaps, hard kills, and a 7-minute control-plane outage. Apps address the pooler; the
-        pooler addresses “the leader”; the leader is a Service whose Endpoints the HA layer
-        rewrites atomically on election. Drilled at each layer — 7.1 proved a StatefulSet's
-        identity/storage/DNS guarantees (and that local-path pins the pod to its data);
-        7.2 proved pooling (5 clients over a pool of 2); 7.3 and 7.4 proved the indirection
-        survives failover, and measured what it costs when the pooler <i>isn't</i> in on the plan.
+        <b>Two warnings that survive the migration.</b>
+        <span class="mono">pg_stat_archiver.archived_count</span> climbed to 15 and the cluster reported
+        “Continuous archiving is working” while the bucket sat <b>empty</b> — CNPG's archive command exits 0
+        with no destination configured, so the only honest check is listing the bucket. And the whole reason
+        the bucket now lives in a locked resource group is that the first version died with a
+        <span class="mono">destroy</span>.
       </p>
     </div>
 
@@ -680,6 +681,28 @@
           <li>7.5 — Capstone <span class="why">· Saleor or Supabase end-to-end behind the gateway, on CNPG</span></li>
         </ul>
       </div>
+      <div class="phase done">
+        <h4>Cloud migration · AWS → Azure <span class="pill ok">done</span> <span class="when">aug 5</span></h4>
+        <p>Not a planned phase — AWS account access was lost, taking the Pulumi state backend and
+        every Postgres backup with it. The forced rebuild became the experiment ADR 002 had been
+        promising since day one.</p>
+        <ul>
+          <li><b>The seam held.</b> <span class="why">Changed: the Makefile header and a new
+          <span class="mono">infra/azure/</span>. Unchanged: prep-node, bootstrap, every Cilium and
+          gateway value, all of apps/ and gitops/. <span class="mono">make bootstrap</span> brought up
+          v1.36.3 on Azure first try.</span></li>
+          <li>Earned by three earlier calls <span class="why">· sshUser carried as <i>data</i>; the address
+          plan pinned identically; and ADR 003's refusal to install a cloud-controller-manager — the thing
+          deliberately NOT built is what made the swap free</span></li>
+          <li>One honest seam <span class="why">· platform.sh's WITH_AWS boolean became
+          <span class="mono">--provider=aws|azure|none</span>; Azure Disk CSI joins EBS CSI as an
+          opt-in class</span></li>
+          <li>Quota, not preference <span class="why">· B-series capacity-blocked, 4-vCPU regional cap →
+          per-role sizing (2-core cp + two 1-core workers)</span></li>
+          <li>Foundation is a SCRIPT now <span class="why">· the AWS state bucket was hand-made and
+          documented only in prose; that knowledge died with the account</span></li>
+        </ul>
+      </div>
       <div class="phase future">
         <h4>Phase 8 · Talos comparison lab <span class="pill parked">planned</span></h4>
         <p>Rebuild on Talos Linux and judge it against kubeadm+Ubuntu (ADR 004).
@@ -694,9 +717,9 @@
 
 <footer class="site">
   <div class="wrap">
-    <p>Sources: <span class="mono">docs/PLAN.md</span>, <span class="mono">docs/decisions/ADR 001–005</span>,
-    <span class="mono">docs/journal/</span> (12 entries, 2026-07-13 → 2026-07-18).
-    Diagrams reflect the cluster as of Phase 7.4 (ADR 007) — both postgres stacks running side by side.</p>
+    <p>Sources: <span class="mono">docs/PLAN.md</span>, <span class="mono">docs/decisions/ADR 001–009</span>,
+    <span class="mono">docs/journal/</span> (18 entries, 2026-07-13 → 2026-08-05).
+    Diagrams reflect the cluster as of the Azure migration, 2026-08-05 (ADR 009) — both postgres stacks running side by side on Azure.</p>
   </div>
 </footer>
 
