@@ -166,16 +166,16 @@ confidently. Deliberate progression:
    Plus the capability neither stack had: S3 WAL archiving + PITR,
    restore into a fresh cluster in 52s, RPO measured at one open WAL
    segment. Zalando dropped — the comparison is already made.
-5. Capstone: deploy a real prebuilt Postgres-backed application stack on
-   CNPG, end to end behind the gateway with TLS. **Chosen: NetBox**
-   (IPAM/DCIM, official chart 8.3.46 with clean `externalDatabase`
-   support) — scoped in `docs/notes/capstone-scope.md`. Rejected:
-   Supabase and Immich both ship *patched* Postgres images (extensions
-   CNPG lacks), so neither would exercise the platform 7.4 adopted;
-   Saleor is viable but NetBox's data is our own infrastructure, which is
-   worth restoring — the premise Phase 8 needs.
-   Blockers first: backup bucket must outlive `pulumi destroy`;
-   app-of-apps before a fifth Application.
+5. 🔨 (2026-08-06) Capstone: **NetBox** on CNPG, live at
+   `https://netbox.k8s.kahng.dev:30443` — 198 tables in a CNPG-managed
+   database, RQ worker, native Gateway API route under the wildcard cert
+   (`docs/notes/capstone-scope.md`, journal 2026-08-06). Chosen over Saleor
+   and Supabase: both Supabase and Immich ship *patched* Postgres images so
+   neither would exercise the 7.4 platform, and NetBox's data is this
+   cluster's own infrastructure — worth restoring, which is what Phase 8
+   needs. Remaining: populate it with the real VPC/subnet/nodes, then the
+   five-drill card (failover under load, migrations at replicaCount 3, cache
+   vs queue, restore-with-app, full rebuild).
 
 Depends on: storage (Phase 4 CSI/local-path), ingress + cert-manager
 (Phase 5), and ideally GitOps (ArgoCD) for the capstone.
