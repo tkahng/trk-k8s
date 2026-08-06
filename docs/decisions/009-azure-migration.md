@@ -177,3 +177,39 @@ the spending limit that previously made overspend *physically impossible*.
 Budget alerts only notify. `make destroy` is now the only thing between a
 forgotten cluster and a real bill — the discipline is unchanged, but the
 consequence of skipping it is no longer capped.
+
+## Addendum 2, 2026-08-06 — the lock and the role assignment
+
+`make destroy` failed at the very end with:
+
+    409 ScopeLocked "The scope '.../rg-trk-k8s-persistent/.../containers/
+    pg-backups/providers/Microsoft.Authorization/roleAssignments/...' cannot
+    perform delete operation because following scope(s) are locked:
+    '.../rg-trk-k8s-persistent'"
+
+**A `CanNotDelete` lock on a resource group blocks deleting anything scoped
+INSIDE it — role assignments included.** The backup grant was scoped to the
+blob container (correct, for least privilege) but *owned by the ephemeral
+stack*, so `destroy` could delete the VMs and then never remove the grant.
+The teardown wedged with the network half still standing.
+
+**Fix — the identity moves to the persistent layer.** `foundation.sh` now
+creates `id-trk-k8s-node` in `rg-trk-k8s-persistent` and grants it Storage
+Blob Data Contributor on the container; `infra/azure` reads the identity's
+resource ID from stack config (`nodeIdentityId`) and only *attaches* it to
+each VM.
+
+The principle, which is the reusable part: **an identity that grants access
+to durable data belongs with the data, not with the compute that borrows
+it.** VMs are cattle and get a fresh principalId on every rebuild; the grant
+is part of the persistent layer. This also removes a whole class of
+lock-versus-lifecycle conflicts rather than working around one instance.
+
+Migration was: `pulumi state delete` the wedged assignment (orphan it), drop
+the lock briefly, delete the stale grant, re-run `foundation.sh` (which
+recreates identity + grant and re-locks), then `destroy` completed cleanly.
+
+**Worth noting what the incident proved.** After a teardown that failed
+mid-flight, `rg-trk-k8s-dev` is gone and the persistent group still holds the
+storage account, Key Vault, identity — and **14 blobs of Postgres backup**.
+ADR 008's boundary did exactly its job, under a failure nobody designed for.

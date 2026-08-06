@@ -26,9 +26,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/pulumi/pulumi-azure-native-sdk/authorization/v3"
 	"github.com/pulumi/pulumi-azure-native-sdk/compute/v3"
-	"github.com/pulumi/pulumi-azure-native-sdk/managedidentity/v3"
 	"github.com/pulumi/pulumi-azure-native-sdk/network/v3"
 	"github.com/pulumi/pulumi-azure-native-sdk/resources/v3"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -117,51 +115,13 @@ func main() {
 			return err
 		}
 
-		// Identity the nodes run as, so in-cluster addons can reach Azure
-		// APIs (Postgres backups to blob storage) without any credential in
-		// the cluster — the managed-identity counterpart to AWS's instance
-		// profile. Its role assignments come later, with the backup lab.
-		nodeIdentity, err := managedidentity.NewUserAssignedIdentity(ctx, "id-trk-k8s-node", &managedidentity.UserAssignedIdentityArgs{
-			ResourceName:      pulumi.String("id-trk-k8s-node"),
-			ResourceGroupName: rg.Name,
-			Location:          rg.Location,
-			Tags:              tags,
-		})
-		if err != nil {
-			return err
-		}
-
-		// Let the nodes write Postgres backups to the blob container in the
-		// PERSISTENT resource group. This is the Azure counterpart to AWS's
-		// "attach a managed policy to the node instance profile" — barman
-		// reaches storage over IMDS as this identity, with no credential in
-		// the cluster.
-		//
-		// Scoped to the CONTAINER, not the storage account: the same account
-		// also holds Pulumi state, and the nodes have no business there.
-		// Tighter than the AWS version, which granted bucket-level access.
-		//
-		// Role: Storage Blob Data Contributor (built-in, fixed GUID). The
-		// service principal needs "Role Based Access Control Administrator"
-		// to create this — Contributor alone cannot grant roles, which is
-		// why foundation.sh assigns both.
-		backupScope := pulumi.Sprintf(
-			"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s/blobServices/default/containers/%s",
-			cfg.Require("subscriptionId"), cfg.Require("persistRg"),
-			cfg.Require("backupStorageAccount"), cfg.Require("backupContainer"))
-		_, err = authorization.NewRoleAssignment(ctx, "node-blob-backups", &authorization.RoleAssignmentArgs{
-			Scope:       backupScope,
-			PrincipalId: nodeIdentity.PrincipalId,
-			// managed identities need this hint, or the assignment can race
-			// Entra replication and fail with PrincipalNotFound
-			PrincipalType: pulumi.String(authorization.PrincipalTypeServicePrincipal),
-			RoleDefinitionId: pulumi.Sprintf(
-				"/subscriptions/%s/providers/Microsoft.Authorization/roleDefinitions/ba92f5b4-2d11-453d-a403-e96b0029c9fe",
-				cfg.Require("subscriptionId")),
-		})
-		if err != nil {
-			return err
-		}
+		// The node identity is NOT created here (ADR 009 addendum). It lives in
+		// rg-trk-k8s-persistent alongside the data it grants access to,
+		// because a CanNotDelete lock on that group blocks deleting role
+		// assignments scoped inside it — so an ephemeral stack owning the
+		// grant could never be destroyed (409 ScopeLocked). foundation.sh
+		// owns identity + grant; this stack only attaches it.
+		nodeIdentityID := cfg.Require("nodeIdentityId")
 
 		// NSG rules need explicit priorities (100-4096, lower wins) — unlike
 		// an AWS security group, where rules are an unordered set. Note what
@@ -264,7 +224,7 @@ func main() {
 				Identity: &compute.VirtualMachineIdentityArgs{
 					Type: compute.ResourceIdentityTypeUserAssigned,
 					UserAssignedIdentities: pulumi.StringArray{
-						nodeIdentity.ID(),
+						pulumi.String(nodeIdentityID),
 					},
 				},
 				HardwareProfile: &compute.HardwareProfileArgs{
@@ -337,7 +297,7 @@ func main() {
 		// consumes only this.
 		ctx.Export("nodes", inventory)
 		ctx.Export("resource-group", rg.Name)
-		ctx.Export("node-identity-client-id", nodeIdentity.ClientId)
+		ctx.Export("node-identity", pulumi.String(nodeIdentityID))
 		// What CNPG's barmanObjectStore destinationPath must point at.
 		ctx.Export("pg-backup-url", pulumi.Sprintf("https://%s.blob.core.windows.net/%s",
 			cfg.Require("backupStorageAccount"), cfg.Require("backupContainer")))

@@ -8,3 +8,4 @@ config:
   trk-k8s-azure:persistRg: rg-trk-k8s-persistent
   trk-k8s-azure:backupStorageAccount: sttrkk8sf92a7ab3
   trk-k8s-azure:backupContainer: pg-backups
+  trk-k8s-azure:nodeIdentityId: /subscriptions/85f3b630-afa5-42cf-b8b3-b06abbf5a28f/resourcegroups/rg-trk-k8s-persistent/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-trk-k8s-node

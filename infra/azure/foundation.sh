@@ -124,6 +124,49 @@ for c in "$STATE_CONTAINER" "$BACKUP_CONTAINER"; do
   fi
 done
 
+echo "### node managed identity + backup access"
+# WHY THIS LIVES HERE, not in infra/azure (learned the hard way):
+# a CanNotDelete lock on this resource group blocks DELETING anything scoped
+# inside it — including role assignments. When the ephemeral stack owned the
+# assignment, `pulumi destroy` failed with
+#   409 ScopeLocked "cannot perform delete operation because following
+#   scope(s) are locked"
+# and the stack wedged.
+#
+# The deeper point: an identity that grants access to DURABLE data belongs
+# with the data, not with the compute that borrows it. The VMs are cattle and
+# get a fresh principalId on every rebuild; the identity and its grant are
+# part of the persistent layer. infra/azure now just attaches this identity
+# by resource ID.
+NODE_IDENTITY="id-trk-k8s-node"
+if ! az identity show -n "$NODE_IDENTITY" -g "$RG_PERSIST" >/dev/null 2>&1; then
+  az identity create -n "$NODE_IDENTITY" -g "$RG_PERSIST" -l "$LOCATION" \
+    --tags cluster=trk-k8s lifecycle=persistent >/dev/null
+  echo "  created $NODE_IDENTITY"
+else
+  echo "  $NODE_IDENTITY exists"
+fi
+NODE_ID_RESOURCE="$(az identity show -n "$NODE_IDENTITY" -g "$RG_PERSIST" --query id -o tsv)"
+NODE_ID_PRINCIPAL="$(az identity show -n "$NODE_IDENTITY" -g "$RG_PERSIST" --query principalId -o tsv)"
+
+# Storage Blob Data Contributor, scoped to the CONTAINER not the account:
+# the same account holds Pulumi state and the nodes have no business there.
+BACKUP_SCOPE="/subscriptions/$SUB_ID/resourceGroups/$RG_PERSIST/providers/Microsoft.Storage/storageAccounts/$SA_NAME/blobServices/default/containers/$BACKUP_CONTAINER"
+if ! az role assignment list --assignee "$NODE_ID_PRINCIPAL" --scope "$BACKUP_SCOPE" \
+      --query "[?roleDefinitionName=='Storage Blob Data Contributor'] | length(@)" -o tsv 2>/dev/null | grep -q '^[1-9]'; then
+  # --assignee-object-id + principal-type: a freshly created managed identity
+  # can race Entra replication and fail PrincipalNotFound without the hint.
+  for _ in 1 2 3 4 5 6; do
+    az role assignment create --assignee-object-id "$NODE_ID_PRINCIPAL" \
+      --assignee-principal-type ServicePrincipal \
+      --role "Storage Blob Data Contributor" --scope "$BACKUP_SCOPE" >/dev/null 2>&1 && break
+    sleep 10
+  done
+  echo "  granted $NODE_IDENTITY Storage Blob Data Contributor on $BACKUP_CONTAINER"
+else
+  echo "  backup role assignment exists"
+fi
+
 echo "### key vault as pulumi's secrets provider"
 if ! az keyvault show -n "$KV_NAME" >/dev/null 2>&1; then
   # RBAC authorization, not legacy access policies — current best practice.
@@ -200,6 +243,8 @@ export TRK_STATE_CONTAINER=$STATE_CONTAINER
 export TRK_BACKUP_CONTAINER=$BACKUP_CONTAINER
 # CNPG barmanObjectStore destinationPath
 export TRK_BACKUP_URL=https://$SA_NAME.blob.core.windows.net/$BACKUP_CONTAINER
+# The identity infra/azure attaches to every VM (persistent, survives destroy)
+export TRK_NODE_IDENTITY_ID=$NODE_ID_RESOURCE
 export TRK_KV_NAME=$KV_NAME
 # Pulumi state backend + secrets provider
 export AZURE_STORAGE_ACCOUNT=$SA_NAME
