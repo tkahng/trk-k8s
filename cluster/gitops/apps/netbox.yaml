@@ -47,6 +47,13 @@ spec:
         # cache-vs-queue contrast pre-separated.
         valkey:
           enabled: true
+          # STANDALONE, not the chart default. The default is a primary plus
+          # THREE replicas — four Redis pods for a lab cache, on three 4 GiB
+          # nodes that already run the platform stack and two CNPG
+          # instances. Replication buys nothing here: drill 3 is about what
+          # breaks when the cache/queue dies, and one pod makes that
+          # cleaner to observe, not harder.
+          architecture: standalone
           master:
             resources:
               requests: {cpu: 50m, memory: 128Mi}
