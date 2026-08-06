@@ -46,6 +46,21 @@ spec:
     # 7.1, on purpose. The operator's replica re-init story meets
     # local storage in the node-loss drill.
 
+  # Roles CNPG reconciles for us. The netbox role owns the netbox database
+  # (netbox-database.yaml) and is what the app authenticates as — so NetBox
+  # never touches the `app` role or database.
+  #
+  # passwordSecret must live in THIS namespace; platform.sh writes the same
+  # generated password into `netbox` too, because secrets don't cross
+  # namespaces.
+  managed:
+    roles:
+      - name: netbox
+        ensure: present
+        login: true
+        passwordSecret:
+          name: netbox-db
+
   # THE capability neither stack had before 7.4, now ported to Azure.
   # Drill 3 proved etcd snapshots don't cover PV data; 7.1 proved a
   # `destroy` takes the database with it. The AWS version measured a real

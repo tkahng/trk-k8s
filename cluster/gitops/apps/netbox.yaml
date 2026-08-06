@@ -1,0 +1,113 @@
+# Phase 7.5 capstone — NetBox, the real Postgres-backed app.
+#
+# Chosen over Saleor and Supabase (docs/notes/capstone-scope.md). Supabase
+# and Immich both ship PATCHED Postgres images, so neither would exercise
+# the CNPG platform 7.4 adopted. NetBox runs on plain Postgres, has clean
+# externalDatabase support, and — the deciding reason — it is IPAM/DCIM, so
+# the data is this cluster's own VPC, subnets and node addresses. Phase 8's
+# premise is rebuild-with-real-data-at-stake, and an inventory of your own
+# infrastructure is data you'd be annoyed to lose. A demo shop full of fake
+# products is not.
+#
+# Second use of the Helm-source pattern invented for cnpg-operator: ArgoCD
+# renders the upstream chart directly, no vendoring.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: netbox
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://charts.netbox.oss.netboxlabs.com
+    chart: netbox
+    targetRevision: 8.3.46          # app v4.6.7, checked 2026-08-01
+    helm:
+      valuesObject:
+        # --- Postgres: the operator's cluster, not the chart's bundled one
+        postgresql:
+          enabled: false            # disables the vendored Bitnami subchart
+        externalDatabase:
+          # Through the POOLER, never a pod: the 7.2 indirection that 7.3/7.4
+          # proved keeps clients oblivious to failover. Drill 1 tests whether
+          # a Django app agrees.
+          host: pg-pooler-rw.postgres-cnpg.svc.cluster.local
+          port: 5432
+          database: netbox
+          username: netbox
+          existingSecretName: netbox-db
+          existingSecretKey: password
+
+        # --- Valkey: keep the chart's bundled one.
+        # It's vendored inside the packaged .tgz, so ArgoCD never contacts
+        # Bitnami's paywalled OCI registry (verified by unpacking — the
+        # problem that pushed us off their pgbouncer image in 7.2 does not
+        # apply here). The chart models tasksDatabase (RQ queue) and
+        # cachingDatabase (cache) separately, which hands drill 3 its
+        # cache-vs-queue contrast pre-separated.
+        valkey:
+          enabled: true
+          master:
+            resources:
+              requests: {cpu: 50m, memory: 128Mi}
+              limits: {memory: 256Mi}
+
+        # --- Secrets: all supplied, none chart-generated.
+        # WHY (a real GitOps-with-Helm trap): the chart generates secret_key
+        # and api_token_peppers via Helm's `lookup` to preserve existing
+        # values across upgrades. `lookup` returns EMPTY under
+        # `helm template`, which is how ArgoCD renders — so left alone the
+        # chart would mint a fresh secret_key on every sync, invalidating
+        # sessions and producing permanent diff churn. platform.sh creates
+        # both secrets from local files instead (the 7.x pattern).
+        existingSecret: netbox-config
+        superuser:
+          existingSecret: netbox-superuser
+
+        # --- Edge: the chart ships native Gateway API support, so no
+        # Ingress and no hand-written HTTPRoute. Cashes the Phase 6.5
+        # promise — a new app is HTTPRoute + DNS, TLS already handled by
+        # the Gateway's wildcard cert.
+        ingress:
+          enabled: false
+        httpRoute:
+          enabled: true
+          hostnames:
+            - netbox.k8s.kahng.dev
+          parentRefs:
+            - name: main
+              namespace: gateway
+              sectionName: https
+        allowedHosts:
+          - netbox.k8s.kahng.dev
+
+        # --- Sizing: the first time this project sets requests/limits
+        # seriously. Three 4 GiB nodes already run the platform stack at
+        # ~40%, plus two CNPG instances.
+        replicaCount: 1
+        resources:
+          requests: {cpu: 200m, memory: 512Mi}
+          limits: {memory: 1Gi}
+        worker:
+          enabled: true             # the RQ worker — a separate Deployment
+          replicaCount: 1
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {memory: 512Mi}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: netbox
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      # The netbox database and role are reconciled by CNPG from the
+      # postgres-cnpg app; this one converges once they exist.
+      limit: 10
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 3m

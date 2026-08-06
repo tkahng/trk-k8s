@@ -139,6 +139,62 @@ elif ! kubectl -n postgres get secret postgres-credentials \
   echo "  replication-password key added to existing secret"
 fi
 
+echo "### netbox credentials (7.5 capstone — local files, never git)"
+# Four generated secrets. They MUST be supplied rather than left to the
+# chart, because of a real GitOps-with-Helm trap: the chart generates
+# secret_key and api_token_peppers using Helm's `lookup` to preserve
+# existing values — and `lookup` returns EMPTY under `helm template`, which
+# is how ArgoCD renders. Left to itself the chart would mint a fresh
+# secret_key on every sync, invalidating sessions and producing permanent
+# diff churn.
+NB_DIR="$HOME/.config/trk-k8s"
+for f in netbox-db-password netbox-secret-key netbox-superuser-password netbox-api-pepper; do
+  if [ ! -f "$NB_DIR/$f" ]; then
+    # tr -d '\n' — the 7.3 trailing-newline lesson: env carries it, pgpass
+    # drops it, and auth splits between the two.
+    (umask 077 && openssl rand -base64 36 | tr -d '\n' > "$NB_DIR/$f")
+    echo "  generated $NB_DIR/$f"
+  fi
+done
+
+kubectl get ns netbox > /dev/null 2>&1 || kubectl create ns netbox > /dev/null
+NB_DB_PW="$(cat "$NB_DIR/netbox-db-password")"
+
+# Same DB password in TWO namespaces: postgres-cnpg (so CNPG's managed role
+# reconciler can set it on the netbox role) and netbox (so the app can use
+# it). Secrets don't cross namespaces and we're not adding a replication
+# controller for one credential.
+for ns in postgres-cnpg netbox; do
+  kubectl get ns "$ns" > /dev/null 2>&1 || continue
+  if ! kubectl -n "$ns" get secret netbox-db > /dev/null 2>&1; then
+    kubectl -n "$ns" create secret generic netbox-db \
+      --type=kubernetes.io/basic-auth \
+      --from-literal=username=netbox \
+      --from-literal=password="$NB_DB_PW" > /dev/null
+    echo "  netbox-db secret created in $ns"
+  fi
+done
+
+if ! kubectl -n netbox get secret netbox-superuser > /dev/null 2>&1; then
+  kubectl -n netbox create secret generic netbox-superuser \
+    --type=kubernetes.io/basic-auth \
+    --from-literal=username=admin \
+    --from-literal=email=admin@k8s.kahng.dev \
+    --from-literal=password="$(cat "$NB_DIR/netbox-superuser-password")" \
+    --from-literal=api_token="$(cat "$NB_DIR/netbox-api-pepper")" > /dev/null
+  echo "  netbox-superuser secret created"
+fi
+
+if ! kubectl -n netbox get secret netbox-config > /dev/null 2>&1; then
+  # api_token_peppers is JSON: {"1": "<pepper>"} — the chart's own format.
+  kubectl -n netbox create secret generic netbox-config \
+    --from-literal=secret_key="$(cat "$NB_DIR/netbox-secret-key")" \
+    --from-literal=api_token_peppers="{\"1\": \"$(cat "$NB_DIR/netbox-api-pepper")\"}" \
+    --from-literal=email_password="" \
+    --from-literal=ldap_bind_password="" > /dev/null
+  echo "  netbox-config secret created"
+fi
+
 echo "### argocd + repo credential + applications"
 helm repo add argo https://argoproj.github.io/argo-helm > /dev/null 2>&1 || true
 helm_i argocd argocd argo/argo-cd

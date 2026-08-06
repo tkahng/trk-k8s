@@ -1,0 +1,19 @@
+# Phase 7.5 — a second database in the existing `pg` cluster for NetBox.
+#
+# Chosen over a second Cluster CR deliberately: another 2-instance cluster
+# would double the Postgres memory on three 4 GiB nodes for no lesson. The
+# trade is a shared blast radius — a failover or restore of `pg` moves
+# NetBox with it, which is exactly what makes drill 1 (failover under load)
+# meaningful.
+#
+# CNPG's Database CRD manages this declaratively; before it existed you had
+# to exec psql and CREATE DATABASE by hand, which GitOps cannot express.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: netbox
+spec:
+  name: netbox
+  owner: netbox        # the role declared in cluster.yaml's managed.roles
+  cluster:
+    name: pg
