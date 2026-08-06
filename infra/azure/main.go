@@ -38,7 +38,7 @@ type node struct {
 	name      string
 	role      string
 	privateIP string
-	size      string // per-role, unlike AWS where all three were t3a.medium
+	size      string // kept per-node: quota once forced uneven sizing (ADR 009)
 }
 
 func main() {
@@ -51,48 +51,53 @@ func main() {
 		sshPublicKey := cfg.Require("sshPublicKey")
 		location := cfg.Get("location")
 		if location == "" {
-			location = "eastus"
+			// westus2, not eastus, for one reason: the burstable B-series is
+			// capacity-restricted in eastus but available here. The persistent
+			// resource group (Pulumi state + Key Vault) stays in eastus — and
+			// that split is a feature, not debt: state and backups living in a
+			// different region from the cluster they describe is exactly what
+			// you want when the cluster's region is what fails.
+			location = "westus2"
 		}
 
-		// VM SIZING IS QUOTA-SHAPED HERE, and it took two failures to learn:
+		// 2 vCPU / 4 GiB AMD burstable — the same shape AND the same
+		// $0.0376/hr as the AWS t3a.medium this project ran on for three
+		// weeks. Three nodes come to ~$0.128/hr all in, marginally CHEAPER
+		// than AWS's ~$0.135/hr.
 		//
-		// 1. Standard_B2als_v2 (burstable, 2 vCPU/4 GiB, $0.0376/hr — the
-		//    exact price and shape of AWS t3a.medium) fails with
-		//    409 SkuNotAvailable "Capacity Restrictions". The ENTIRE
-		//    B-series is restricted on a trial subscription. `az vm
-		//    list-sizes` lists it as available; only `az vm list-skus`'s
-		//    `restrictions` field tells the truth — of 522 SKUs visible in
-		//    eastus, just 16 two-vCPU sizes are actually unrestricted.
+		// Getting here took the long way round, and the history is the
+		// lesson (ADR 009 + its addendum):
+		//   1. On the FREE TRIAL this SKU failed 409 SkuNotAvailable
+		//      "Capacity Restrictions" — the whole B-series was withheld.
+		//      `az vm list-sizes` reported it available; only
+		//      `az vm list-skus`'s `restrictions` field told the truth.
+		//   2. Total Regional vCPUs was capped at 4, so three 2-core nodes
+		//      were impossible regardless of family. That forced per-role
+		//      sizing (2-core cp + two 1-core workers) as a workaround.
+		//   3. The quota-increase request was DENIED (trial subscriptions
+		//      generally are). Upgrading to pay-as-you-go lifted the cap to
+		//      10 cores per region immediately.
+		//   4. B-series remained restricted in eastus even after the
+		//      upgrade — that one is genuine REGIONAL capacity, not
+		//      entitlement — but is unrestricted in westus2. Hence the move.
 		//
-		// 2. Three 2-vCPU nodes then failed with 409 OperationNotAllowed:
-		//    "Total Regional vCPUs" quota is **4** — checked in eastus,
-		//    westus2, centralus and eastus2, all 4, so relocating does not
-		//    help. Three 2-core nodes need 6.
+		// So the earlier "capacity" failures had two different causes wearing
+		// the same error code: subscription entitlement (fixed by upgrading)
+		// and regional capacity (fixed by moving). Worth separating, because
+		// the remedies are nothing alike.
 		//
-		// Phase 1's Hetzner lesson, third and fourth occurrence: a provider
-		// listing a product is not the same as having capacity FOR YOU.
-		// Hetzner had no CX23s; AWS held a new account's third instance for
-		// PendingVerification; Azure gates a whole VM family behind trial
-		// quota AND caps total cores.
-		//
-		// Solution that preserves the topology inside 4 cores: a 2-core
-		// control plane (kubeadm's NumCPU preflight REQUIRES 2) plus two
-		// 1-core workers, every node still 4 GiB. All the drills that need
-		// two workers — cordon-one-fail-to-the-other, an instance per
-		// worker — keep working.
-		//
-		// Cost: ~$0.232/hr all in vs AWS's ~$0.135/hr. A 3-hour lab is
-		// ~$0.70; leaving it up for a month would eat the whole $200 trial
-		// credit. Teardown is now budget, not tidiness.
-		cpSize := "Standard_D2als_v7"    // 2 vCPU, 4 GiB, $0.0804/hr
-		workerSize := "Standard_F1as_v7" // 1 vCPU, 4 GiB, $0.0683/hr
+		// NOTE the safety trade that came with the upgrade: pay-as-you-go
+		// removes the spending limit that used to make overspend physically
+		// impossible. Budget alerts only notify. `make destroy` is now the
+		// only thing standing between a forgotten cluster and a real bill.
+		vmSize := "Standard_B2als_v2"
 
 		// Same address plan as the AWS and Hetzner layouts, so the cluster/
 		// runbooks and Cilium's k8sServiceHost are unchanged.
 		nodes := []node{
-			{name: "k8s-cp-1", role: "control-plane", privateIP: "10.0.1.10", size: cpSize},
-			{name: "k8s-worker-1", role: "worker", privateIP: "10.0.1.11", size: workerSize},
-			{name: "k8s-worker-2", role: "worker", privateIP: "10.0.1.12", size: workerSize},
+			{name: "k8s-cp-1", role: "control-plane", privateIP: "10.0.1.10", size: vmSize},
+			{name: "k8s-worker-1", role: "worker", privateIP: "10.0.1.11", size: vmSize},
+			{name: "k8s-worker-2", role: "worker", privateIP: "10.0.1.12", size: vmSize},
 		}
 
 		tags := pulumi.StringMap{

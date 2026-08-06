@@ -3,4 +3,4 @@ encryptedkey: bTRKNFptMDRkaEc3QjdxbGpPY3BMTTNMa2lqUjFmeXhTQjVfYlphZnRqRERibHJwRV
 config:
   trk-k8s-azure:myIp: 45.50.96.187/32
   trk-k8s-azure:sshPublicKey: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGOB9MhkVD2cuSSycPIqiSna0oSbTfbHc9/6/tBBy7Xw tkahng-k8s-azure
-  azure-native:location: eastus
+  azure-native:location: westus2

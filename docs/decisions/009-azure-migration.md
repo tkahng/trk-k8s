@@ -141,3 +141,39 @@ gates a VM family behind trial quota *and* caps total cores.
 - Phase 8's Talos comparison is now a *second* portability axis rather
   than the first: Azure tested provider portability, Talos tests OS
   portability (no SSH, so `cluster/` genuinely gets replaced).
+
+## Addendum, 2026-08-06 — pay-as-you-go, and westus2
+
+The free-trial quota-increase request was **denied** (trial subscriptions
+generally are). Upgrading to **pay-as-you-go** lifted Total Regional vCPUs
+from 4 to **10** per region immediately, which retired the per-role sizing
+workaround.
+
+But the B-series stayed restricted in **eastus** even after the upgrade —
+so the two failures that both reported "capacity" had *different causes*:
+
+| Failure | Real cause | Remedy |
+|---|---|---|
+| 4-vCPU regional cap | subscription **entitlement** | upgrade billing |
+| B-series `SkuNotAvailable` in eastus | genuine **regional capacity** | move region |
+
+Worth separating, because the remedies have nothing in common. `az vm
+list-skus` reports both identically.
+
+**Decisions:** cluster moves to **westus2**, where `Standard_B2als_v2` is
+unrestricted with a 10-core quota — 3 nodes of 2 vCPU / 4 GiB at
+$0.0376/hr each, **~$0.128/hr all in, marginally cheaper than AWS's
+~$0.135/hr** and the same machine shape the project ran on for three
+weeks. Drill timings are comparable to the AWS baseline again, which
+matters more than the money: the whole method is comparative.
+
+The persistent resource group (Pulumi state + Key Vault) **stays in
+eastus**. That split is deliberate — state and backups in a different
+region from the cluster they describe is what you want when the cluster's
+region is what fails.
+
+**The safety cost of upgrading, recorded plainly:** pay-as-you-go removes
+the spending limit that previously made overspend *physically impossible*.
+Budget alerts only notify. `make destroy` is now the only thing between a
+forgotten cluster and a real bill — the discipline is unchanged, but the
+consequence of skipping it is no longer capped.
