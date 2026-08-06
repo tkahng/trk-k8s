@@ -150,10 +150,17 @@ echo "### netbox credentials (7.5 capstone — local files, never git)"
 NB_DIR="$HOME/.config/trk-k8s"
 for f in netbox-db-password netbox-secret-key netbox-superuser-password netbox-api-pepper; do
   if [ ! -f "$NB_DIR/$f" ]; then
+    # 48 bytes -> 64 base64 chars. NetBox requires SECRET_KEY to be at
+    # least 50 CHARACTERS and `openssl rand -base64 36` gives exactly 48 —
+    # two short. The failure mode is nasty: the entrypoint prints
+    # "Waiting on DB... / Waited 30s or more for the DB to become ready"
+    # and crash-loops, while the real complaint is one easily-missed line
+    # suggesting generate_secret_key.py. Every DB connectivity test passed
+    # by hand; the database was never the problem.
     # tr -d '\n' — the 7.3 trailing-newline lesson: env carries it, pgpass
     # drops it, and auth splits between the two.
-    (umask 077 && openssl rand -base64 36 | tr -d '\n' > "$NB_DIR/$f")
-    echo "  generated $NB_DIR/$f"
+    (umask 077 && openssl rand -base64 48 | tr -d '\n' > "$NB_DIR/$f")
+    echo "  generated $NB_DIR/$f ($(wc -c < "$NB_DIR/$f") chars)"
   fi
 done
 

@@ -91,9 +91,11 @@ spec:
         # --- Sizing: the first time this project sets requests/limits
         # seriously. Three 4 GiB nodes already run the platform stack at
         # ~40%, plus two CNPG instances.
-        # Temporarily on: the entrypoint's "Waiting on DB" message hides the
-        # actual exception, and the DB path tested fine by hand.
-        dbWaitDebug: true
+        # Worth knowing this exists: the entrypoint's "Waiting on DB /
+        # Waited 30s or more" message MASKS real config errors. Two
+        # 50-character minimums (SECRET_KEY and each API token pepper) both
+        # surfaced as a fake database timeout. Set dbWaitDebug: true to get
+        # the actual traceback instead of chasing the database.
         replicaCount: 1
         resources:
           requests: {cpu: 200m, memory: 512Mi}
