@@ -3,8 +3,9 @@
 Goal: build a real multi-node Kubernetes cluster from scratch — machines
 provisioned with the **Pulumi Go SDK**, cluster bootstrapped with **kubeadm** —
 and document everything learned along the way. The cluster core is
-**provider-agnostic**: currently targeting AWS, previously Hetzner (kept), and
-deliberately deployable on-prem.
+**provider-agnostic**: currently targeting Azure, previously AWS (account lost
+2026-08-05) and Hetzner (no capacity), and deliberately deployable on-prem.
+The AWS→Azure migration tested that claim and it held — see ADR 009.
 
 A named end-goal beyond the cluster itself: **running PostgreSQL properly in
 Kubernetes** (StatefulSets → PgBouncer → Patroni/ZooKeeper HA → operators),
@@ -14,7 +15,8 @@ culminating in a real prebuilt Postgres-backed stack like Saleor or Supabase
 ## Architecture: two layers, one seam
 
 ```
-infra/aws/       ── provider-specific ──┐
+infra/azure/     ── provider-specific ──┐   (current)
+infra/aws/       ── provider-specific ──┤   (dead: account lost)
 infra/hetzner/   ── provider-specific ──┤──▶  "nodes" inventory contract
 (on-prem: hand-written inventory) ──────┘         │
                                                   ▼
@@ -32,23 +34,33 @@ the core cluster must work without them, or it isn't portable.
 | Decision | Choice | Record |
 |---|---|---|
 | Topology | 1 control plane + 2 workers | — |
-| Provider (current) | AWS us-east-1, t3a.medium ×3 (~$0.11/hr for the set) | ADR 002 |
+| Provider (current) | **Azure eastus** — D2als_v7 cp + F1as_v7 ×2 (~$0.232/hr all in; per-role sizing forced by a 4-vCPU trial quota) | ADR 009 |
+| Provider (dead) | AWS — account access lost 2026-08-05; `infra/aws*` kept as reference | ADR 002, 009 |
 | Provider (parked) | Hetzner CX23 — no VM capacity July 2026; program kept in `infra/hetzner/` | ADR 001, 002 |
-| Portability | Provider-agnostic cluster layer + node inventory contract | ADR 002 |
+| Portability | Provider-agnostic cluster layer + node inventory contract — **PROVEN 2026-08-05**: `cluster/` unchanged, `bootstrap.sh` worked first try on Azure | ADR 002, 009 |
 | CNI | Cilium | — |
 | Bootstrap | Manual kubeadm via SSH first; automate in Phase 6 | — |
 | IaC | Pulumi Go SDK | — |
-| Pulumi state | S3 bucket in the AWS account (self-managed backend, passphrase secrets) | ADR 002 |
+| Pulumi state | Azure Blob in `rg-trk-k8s-persistent` (self-managed backend, **Key Vault** secrets) | ADR 009 |
 
-Cost: ~$82/mo if left running — but billing is per-hour and the new AWS
-account has ~$200 of credits, so with `pulumi destroy` between sessions
-(~$0.35 per 3-hour lab) the credits should cover the whole project.
+Cost: ~$0.232/hr on Azure (~$167/mo if left running). The trial gives $200 of
+credit that **expires 30 days from signup regardless of use**, so the clock is
+the binding constraint, not the money. A 3-hour lab is ~$0.70 with
+`make destroy` between sessions — but leaving it up for a month would consume
+essentially the whole credit, so teardown is now budget discipline rather than
+tidiness. (AWS was ~$0.135/hr; Azure's burstable B-series is capacity-blocked
+on trial subscriptions — ADR 009.)
 
 ## Phases
 
 ### Phase 0 — Prerequisites ✅ (mostly done)
 - [x] Tooling: pulumi, Go, kubectl, hcloud CLI
-- [x] Dedicated SSH keypairs, one per provider: `~/.ssh/aws_k8s`, `~/.ssh/hetzner_k8s`
+- [x] Dedicated SSH keypairs, one per provider: `~/.ssh/azure_k8s` (current),
+      `~/.ssh/aws_k8s`, `~/.ssh/hetzner_k8s`
+- [x] Azure account hardening + foundation, SCRIPTED this time
+      (`infra/azure/foundation.sh`): locked persistent resource group, versioned
+      state storage, **Key Vault** secrets provider, service principal,
+      registered resource providers — ADR 009
 - [x] Hetzner project "k8s" + API token (parked)
 - [x] AWS: IAM Identity Center user (PowerUserAccess) → local profile `personal`
 - [x] Account hardening: S3 Block Public Access, default EBS encryption, budget
