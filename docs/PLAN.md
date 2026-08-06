@@ -34,7 +34,7 @@ the core cluster must work without them, or it isn't portable.
 | Decision | Choice | Record |
 |---|---|---|
 | Topology | 1 control plane + 2 workers | — |
-| Provider (current) | **Azure eastus** — D2als_v7 cp + F1as_v7 ×2 (~$0.232/hr all in; per-role sizing forced by a 4-vCPU trial quota) | ADR 009 |
+| Provider (current) | **Azure eastus** — D2als_v7 ×3 (2 vCPU/4 GiB each, matching the AWS baseline; ~$0.256/hr all in — no burstable SKU is reachable) | ADR 009 |
 | Provider (dead) | AWS — account access lost 2026-08-05; `infra/aws*` kept as reference | ADR 002, 009 |
 | Provider (parked) | Hetzner CX23 — no VM capacity July 2026; program kept in `infra/hetzner/` | ADR 001, 002 |
 | Portability | Provider-agnostic cluster layer + node inventory contract — **PROVEN 2026-08-05**: `cluster/` unchanged, `bootstrap.sh` worked first try on Azure | ADR 002, 009 |
@@ -43,13 +43,12 @@ the core cluster must work without them, or it isn't portable.
 | IaC | Pulumi Go SDK | — |
 | Pulumi state | Azure Blob in `rg-trk-k8s-persistent` (self-managed backend, **Key Vault** secrets) | ADR 009 |
 
-Cost: ~$0.232/hr on Azure (~$167/mo if left running). The trial gives $200 of
-credit that **expires 30 days from signup regardless of use**, so the clock is
-the binding constraint, not the money. A 3-hour lab is ~$0.70 with
-`make destroy` between sessions — but leaving it up for a month would consume
-essentially the whole credit, so teardown is now budget discipline rather than
-tidiness. (AWS was ~$0.135/hr; Azure's burstable B-series is capacity-blocked
-on trial subscriptions — ADR 009.)
+Cost: ~$0.256/hr on Azure, ~1.9× AWS's ~$0.135/hr for identical specs — no
+burstable SKU is reachable on this subscription (three independent quota
+layers; see the 2026-08-06 journal). A 3-hour lab is ~$0.77.
+**Now on pay-as-you-go**, which lifted the vCPU quota but also removed the
+spending limit that made overspend physically impossible — `make destroy` is
+the only remaining guard, so teardown is budget discipline, not tidiness.
 
 ## Phases
 
