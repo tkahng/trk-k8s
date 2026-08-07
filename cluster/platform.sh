@@ -172,7 +172,14 @@ NB_DB_PW="$(cat "$NB_DIR/netbox-db-password")"
 # it). Secrets don't cross namespaces and we're not adding a replication
 # controller for one credential.
 for ns in postgres-cnpg netbox; do
-  kubectl get ns "$ns" > /dev/null 2>&1 || continue
+  # CREATE the namespace rather than skip it. A `|| continue` here silently
+  # skipped postgres-cnpg on a fresh cluster — ArgoCD hadn't created that
+  # namespace yet — so CNPG's managed-role reconciler never found the
+  # secret, the netbox role never got its password, and NetBox failed auth
+  # with nothing in platform.sh's output to suggest why. Pre-creating is
+  # harmless: the Applications use CreateNamespace=true, which is
+  # satisfied by an existing namespace.
+  kubectl get ns "$ns" > /dev/null 2>&1 || kubectl create ns "$ns" > /dev/null
   if ! kubectl -n "$ns" get secret netbox-db > /dev/null 2>&1; then
     kubectl -n "$ns" create secret generic netbox-db \
       --type=kubernetes.io/basic-auth \
