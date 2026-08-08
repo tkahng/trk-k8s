@@ -1,0 +1,687 @@
+<title>trk-k8s · NetBox drill map</title>
+<style>
+  :root {
+    --ground: #f4f6f7;
+    --surface: #ffffff;
+    --surface-2: #eceff1;
+    --ink: #1d2830;
+    --muted: #5c6c78;
+    --line: #d3dbe0;
+    --accent: #0e8a83;        /* teal — data plane, new/promoted things */
+    --accent-tint: #e0f0ee;
+    --amber: #a06a12;         /* stressed */
+    --amber-tint: #f6ecd9;
+    --red: #b3423a;           /* killed */
+    --red-tint: #f5e3e1;
+    --green: #2f7d54;         /* survives */
+    --green-tint: #e2efe7;
+    --code-bg: #eef1f3;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0f1519;
+      --surface: #171f26;
+      --surface-2: #1e2933;
+      --ink: #e4ecf1;
+      --muted: #8fa1ae;
+      --line: #2b3944;
+      --accent: #3cb8af;
+      --accent-tint: #143432;
+      --amber: #d19a3d;
+      --amber-tint: #33270f;
+      --red: #e06258;
+      --red-tint: #3a1d1a;
+      --green: #55b183;
+      --green-tint: #14301f;
+      --code-bg: #0d1418;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #0f1519;
+    --surface: #171f26;
+    --surface-2: #1e2933;
+    --ink: #e4ecf1;
+    --muted: #8fa1ae;
+    --line: #2b3944;
+    --accent: #3cb8af;
+    --accent-tint: #143432;
+    --amber: #d19a3d;
+    --amber-tint: #33270f;
+    --red: #e06258;
+    --red-tint: #3a1d1a;
+    --green: #55b183;
+    --green-tint: #14301f;
+    --code-bg: #0d1418;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.55;
+    margin: 0;
+    padding: 40px 20px 72px;
+  }
+  .wrap { max-width: 1060px; margin: 0 auto; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 10px;
+  }
+  h1 {
+    font-family: var(--mono);
+    font-size: clamp(24px, 3.6vw, 34px);
+    font-weight: 600;
+    letter-spacing: -.01em;
+    line-height: 1.2;
+    margin: 0 0 14px;
+    text-wrap: balance;
+  }
+  .lede {
+    max-width: 68ch;
+    color: var(--muted);
+    font-size: 16px;
+    margin: 0 0 8px;
+  }
+  .lede strong { color: var(--ink); font-weight: 600; }
+
+  /* ---- tabs ---- */
+  .tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 28px 0 18px;
+  }
+  .tab {
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 7px 14px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--muted);
+    cursor: pointer;
+    transition: border-color .15s, color .15s;
+  }
+  .tab:hover { border-color: var(--accent); color: var(--ink); }
+  .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .tab[aria-pressed="true"] {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--ground);
+    font-weight: 600;
+  }
+  .tab .n { opacity: .7; margin-right: 6px; }
+  .tab[aria-pressed="true"] .n { opacity: .9; }
+
+  /* ---- legend ---- */
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 20px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--muted);
+    margin: 0 0 10px;
+  }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; }
+  .swatch { width: 12px; height: 12px; border-radius: 3px; border: 1.5px solid; display: inline-block; }
+  .sw-ok   { border-color: var(--line);  background: var(--surface); }
+  .sw-hot  { border-color: var(--amber); background: var(--amber-tint); }
+  .sw-dead { border-color: var(--red);   background: var(--red-tint); }
+  .sw-new  { border-color: var(--accent);background: var(--accent-tint); }
+  .sw-live { border-color: var(--green); background: var(--green-tint); }
+
+  /* ---- diagram ---- */
+  .stage {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px;
+    overflow-x: auto;
+  }
+  .stage svg { display: block; min-width: 780px; width: 100%; height: auto; }
+
+  svg text { font-family: var(--mono); fill: var(--ink); }
+  .t-main { font-size: 13px; font-weight: 600; }
+  .t-sub  { font-size: 10.5px; fill: var(--muted); }
+  .t-lbl  { font-size: 10.5px; fill: var(--muted); }
+  .t-zone { font-size: 11px; fill: var(--muted); letter-spacing: .08em; }
+
+  .box rect { fill: var(--surface-2); stroke: var(--line); stroke-width: 1.4; rx: 7; }
+  .zone > rect { fill: none; stroke: var(--line); stroke-dasharray: 5 4; rx: 10; }
+  .arrow { stroke: var(--muted); stroke-width: 1.4; fill: none; marker-end: url(#arr); }
+  .arrow.dashed { stroke-dasharray: 4 4; }
+
+  .pill rect { fill: var(--accent); stroke: none; rx: 7; }
+  .pill text { fill: var(--ground); font-size: 9.5px; font-weight: 700; letter-spacing: .06em; }
+
+  .ghost rect { stroke-dasharray: 4 3; opacity: .5; fill: var(--surface); }
+  .ghost text { opacity: .55; }
+  .hidden { display: none; }
+
+  /* state paints */
+  .killed rect { stroke: var(--red); fill: var(--red-tint); }
+  .killed text { fill: var(--red); }
+  .killed .t-sub { fill: var(--red); opacity: .75; }
+  .stressed rect { stroke: var(--amber); fill: var(--amber-tint); }
+  .newer rect { stroke: var(--accent); fill: var(--accent-tint); stroke-width: 2; opacity: 1; }
+  .newer text { opacity: 1; }
+  .survivor rect { stroke: var(--green); stroke-width: 2.4; fill: var(--green-tint); }
+  .dim { opacity: .22; }
+  .arrow.ghosted { opacity: .2; }
+  .arrow.hot { stroke: var(--accent); stroke-width: 2; }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .killed rect { animation: throb 1.6s ease-in-out infinite; }
+    @keyframes throb { 50% { stroke-opacity: .35; } }
+  }
+
+  /* ---- panels ---- */
+  .panel {
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--accent);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 22px 24px;
+    margin-top: 18px;
+  }
+  .panel[hidden] { display: none; }
+  .panel h2 {
+    font-family: var(--mono);
+    font-size: 18px;
+    margin: 0 0 4px;
+  }
+  .panel .delta {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--muted);
+    margin: 0 0 18px;
+  }
+  .panel .delta b { color: var(--accent); font-weight: 600; }
+  .pgrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 18px 26px;
+  }
+  .pblock h3 {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 6px;
+  }
+  .pblock p { margin: 0 0 8px; font-size: 14.5px; max-width: 46ch; }
+  .pblock p:last-child { margin-bottom: 0; }
+  code {
+    font-family: var(--mono);
+    font-size: .88em;
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: 1px 6px;
+    white-space: nowrap;
+  }
+  .fire { border-left-color: var(--red); }
+  .fire h3 { color: var(--red); }
+
+  /* ---- durability ladder ---- */
+  .ladder {
+    margin-top: 34px;
+    border-top: 1px solid var(--line);
+    padding-top: 22px;
+  }
+  .ladder h2 {
+    font-family: var(--mono);
+    font-size: 14px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 14px;
+  }
+  .rungs { display: flex; flex-wrap: wrap; gap: 10px; align-items: stretch; }
+  .rung {
+    flex: 1 1 180px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+    padding: 12px 14px;
+    font-size: 13px;
+  }
+  .rung .who { font-family: var(--mono); font-weight: 600; font-size: 13px; }
+  .rung .dies { color: var(--muted); font-size: 12.5px; margin-top: 3px; }
+  .rung.last { border-color: var(--green); background: var(--green-tint); }
+  .rung.last .dies { color: var(--green); }
+  .rungs .sep {
+    align-self: center;
+    font-family: var(--mono);
+    color: var(--muted);
+    font-size: 15px;
+  }
+</style>
+
+<div class="wrap">
+  <p class="eyebrow">trk-k8s · phase 7.5 → phase 8</p>
+  <h1>The database that describes its own cluster</h1>
+  <p class="lede">NetBox is an infrastructure inventory. Ours now holds <strong>1 site, 1 cluster, 3 VMs, 4 prefixes, 6 IPs</strong> — the records of the very machines it runs on. That self-reference is the point: every drill below breaks something the database itself depends on, and "recovery" means those records come back.</p>
+  <p class="lede">Three loops keep it alive — <strong>traffic</strong> (you → Gateway → NetBox → Postgres), <strong>reconcile</strong> (git → Argo CD → everything), <strong>durability</strong> (Postgres → S3). Each drill attacks a different loop. Click through to see how the picture changes.</p>
+
+  <div class="tabs" role="group" aria-label="Drill selector">
+    <button class="tab" data-state="d0" aria-pressed="true"><span class="n">0</span>today</button>
+    <button class="tab" data-state="d1" aria-pressed="false"><span class="n">1</span>failover under load</button>
+    <button class="tab" data-state="d2" aria-pressed="false"><span class="n">2</span>migrations ×3</button>
+    <button class="tab" data-state="d3" aria-pressed="false"><span class="n">3</span>cache vs queue</button>
+    <button class="tab" data-state="d4" aria-pressed="false"><span class="n">4</span>restore with app</button>
+    <button class="tab" data-state="d5" aria-pressed="false"><span class="n">5</span>full rebuild</button>
+  </div>
+
+  <div class="legend">
+    <span><i class="swatch sw-ok"></i>healthy</span>
+    <span><i class="swatch sw-hot"></i>stressed / degraded</span>
+    <span><i class="swatch sw-dead"></i>killed</span>
+    <span><i class="swatch sw-new"></i>new or promoted</span>
+    <span><i class="swatch sw-live"></i>survives the drill</span>
+  </div>
+
+  <div class="stage">
+  <svg id="diagram" viewBox="0 0 1000 668" role="img" aria-label="Architecture diagram of NetBox running on the trk-k8s cluster, with drill states">
+    <defs>
+      <marker id="arr" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L8,4 L0,8 z" fill="var(--muted)"></path>
+      </marker>
+    </defs>
+
+    <!-- outside world, top row -->
+    <g id="you" class="box">
+      <rect x="40" y="16" width="200" height="56"></rect>
+      <text x="56" y="39" class="t-main">you · browser</text>
+      <text x="56" y="57" class="t-sub">netbox.k8s.kahng.dev</text>
+    </g>
+    <g id="loadchip" class="box hidden">
+      <rect x="40" y="80" width="200" height="24"></rect>
+      <text x="56" y="96" class="t-sub">+ hey, sustained req/s</text>
+    </g>
+    <g id="git" class="box">
+      <rect x="410" y="16" width="200" height="56"></rect>
+      <text x="426" y="39" class="t-main">GitHub · trk-k8s</text>
+      <text x="426" y="57" class="t-sub">desired state, all of it</text>
+    </g>
+    <g id="laptop" class="box">
+      <rect x="756" y="16" width="204" height="56"></rect>
+      <text x="772" y="39" class="t-main">laptop</text>
+      <text x="772" y="57" class="t-sub">~/.config/trk-k8s · ~/.ssh</text>
+    </g>
+
+    <!-- cluster boundary -->
+    <g id="clusterbox" class="zone">
+      <rect x="24" y="112" width="952" height="434"></rect>
+      <text x="44" y="134" class="t-zone">KUBERNETES · aws us-east-1 · 3× t3a.medium · kubeadm + cilium</text>
+    </g>
+
+    <g id="gateway" class="box">
+      <rect x="56" y="150" width="220" height="54"></rect>
+      <text x="72" y="172" class="t-main">Gateway · Envoy</text>
+      <text x="72" y="190" class="t-sub">hostNetwork :30443 · wildcard TLS</text>
+    </g>
+    <g id="argocd" class="box">
+      <rect x="420" y="150" width="180" height="54"></rect>
+      <text x="436" y="172" class="t-main">Argo CD</text>
+      <text x="436" y="190" class="t-sub">app-of-apps ← git</text>
+    </g>
+
+    <!-- netbox namespace -->
+    <g id="nsnetbox" class="zone">
+      <rect x="56" y="236" width="420" height="272"></rect>
+      <text x="72" y="257" class="t-zone">NS: NETBOX</text>
+    </g>
+    <g id="netboxpod1" class="box">
+      <rect x="76" y="272" width="110" height="60"></rect>
+      <text x="88" y="295" class="t-main">netbox</text>
+      <text x="88" y="312" class="t-sub">web · pod 1</text>
+    </g>
+    <g id="netboxpod2" class="box ghost">
+      <rect x="196" y="272" width="110" height="60"></rect>
+      <text x="208" y="295" class="t-main">netbox</text>
+      <text x="208" y="312" class="t-sub">pod 2 · drill 2</text>
+    </g>
+    <g id="netboxpod3" class="box ghost">
+      <rect x="316" y="272" width="110" height="60"></rect>
+      <text x="328" y="295" class="t-main">netbox</text>
+      <text x="328" y="312" class="t-sub">pod 3 · drill 2</text>
+    </g>
+    <g id="datachip" class="box">
+      <rect x="76" y="348" width="380" height="42"></rect>
+      <text x="90" y="366" class="t-sub">holds records of THIS cluster:</text>
+      <text x="90" y="382" class="t-sub">1 site · 1 cluster · 3 VMs · 4 prefixes · 6 IPs</text>
+    </g>
+    <g id="worker" class="box">
+      <rect x="76" y="416" width="180" height="56"></rect>
+      <text x="92" y="439" class="t-main">netbox-worker</text>
+      <text x="92" y="457" class="t-sub">RQ jobs · webhooks</text>
+    </g>
+    <g id="valkey" class="box">
+      <rect x="276" y="416" width="180" height="56"></rect>
+      <text x="292" y="439" class="t-main">Valkey</text>
+      <text x="292" y="457" class="t-sub">cache + queue · standalone</text>
+    </g>
+
+    <!-- postgres namespace -->
+    <g id="nspg" class="zone">
+      <rect x="516" y="236" width="440" height="272"></rect>
+      <text x="532" y="257" class="t-zone">NS: POSTGRES-CNPG</text>
+    </g>
+    <g id="operator" class="box">
+      <rect x="536" y="268" width="190" height="40"></rect>
+      <text x="550" y="293" class="t-sub">CNPG operator · promotes, heals</text>
+    </g>
+    <g id="pgrestore" class="box ghost hidden">
+      <rect x="746" y="268" width="190" height="60"></rect>
+      <text x="760" y="291" class="t-main">pg-restore</text>
+      <text x="760" y="308" class="t-sub">new cluster · PITR · drill 4</text>
+    </g>
+    <g id="pooler" class="box">
+      <rect x="536" y="322" width="190" height="52"></rect>
+      <text x="550" y="343" class="t-main">pg-pooler-rw</text>
+      <text x="550" y="360" class="t-sub">PgBouncer → primary</text>
+    </g>
+    <g id="pg1" class="box">
+      <rect x="536" y="396" width="190" height="62"></rect>
+      <text x="550" y="419" class="t-main">pg-1</text>
+      <text x="550" y="436" class="t-sub">Postgres 18.4 · PVC</text>
+      <g id="pg1badge" class="pill">
+        <rect x="646" y="406" width="66" height="17"></rect>
+        <text x="654" y="418">PRIMARY</text>
+      </g>
+    </g>
+    <g id="pg2" class="box">
+      <rect x="746" y="396" width="190" height="62"></rect>
+      <text x="760" y="419" class="t-main">pg-2</text>
+      <text x="760" y="436" class="t-sub">streaming replica</text>
+      <g id="pg2badge" class="pill hidden">
+        <rect x="856" y="406" width="66" height="17"></rect>
+        <text x="864" y="418">PRIMARY</text>
+      </g>
+    </g>
+
+    <!-- s3, outside the cluster -->
+    <g id="s3" class="box">
+      <rect x="616" y="586" width="340" height="56"></rect>
+      <text x="632" y="609" class="t-main">s3://trk-k8s-pg-backups</text>
+      <text x="632" y="627" class="t-sub">WAL archive · base backups ×6h · versioned</text>
+    </g>
+
+    <!-- arrows -->
+    <path id="a-you" class="arrow" d="M140,72 L163,148"></path>
+    <path id="a-git" class="arrow" d="M510,72 L510,148"></path>
+    <path id="a-dep1" class="arrow dashed" d="M472,204 L300,234"></path>
+    <path id="a-dep2" class="arrow dashed" d="M548,204 L700,234"></path>
+    <text x="510" y="226" class="t-lbl" text-anchor="middle">reconciles</text>
+    <path id="a-gw" class="arrow" d="M164,204 L134,270"></path>
+    <path id="a-sql" class="arrow" d="M186,302 L534,344"></path>
+    <text x="352" y="312" class="t-lbl" text-anchor="middle">SQL</text>
+    <path id="a-cache" class="arrow" d="M131,332 L131,394 L326,394 L326,414"></path>
+    <text x="216" y="408" class="t-lbl" text-anchor="middle">cache · enqueue</text>
+    <path id="a-dequeue" class="arrow" d="M274,444 L258,444"></path>
+    <path id="a-pool" class="arrow" d="M631,374 L631,394"></path>
+    <path id="a-repl" class="arrow" d="M726,428 L744,428"></path>
+    <text x="736" y="446" class="t-lbl" text-anchor="middle" transform="rotate(0)">repl</text>
+    <path id="a-wal" class="arrow" d="M631,458 L631,584"></path>
+    <text x="643" y="530" class="t-lbl">WAL + base backups</text>
+    <path id="a-pitr" class="arrow hot hidden" d="M956,614 L988,614 L988,298 L938,298"></path>
+    <text id="l-pitr" x="984" y="286" class="t-lbl hidden" text-anchor="end">PITR: base + WAL replay</text>
+    <path id="a-repoint" class="arrow hot hidden" d="M186,298 L744,298"></path>
+    <text id="l-repoint" x="460" y="290" class="t-lbl hidden" text-anchor="middle">repointed SQL</text>
+  </svg>
+  </div>
+
+  <!-- ============ panels ============ -->
+
+  <section class="panel" data-panel="d0">
+    <h2>0 · Today — the healthy baseline</h2>
+    <p class="delta">Diagram: everything quiet. <b>pg-1</b> wears the PRIMARY badge; pods 2 and 3 are dashed because they don't exist yet.</p>
+    <div class="pgrid">
+      <div class="pblock">
+        <h3>Traffic loop</h3>
+        <p>Cloudflare resolves <code>netbox.k8s.kahng.dev</code> to a node; Envoy terminates TLS and routes to the NetBox pod, which talks SQL through the pooler to whichever instance is primary.</p>
+      </div>
+      <div class="pblock">
+        <h3>Reconcile loop</h3>
+        <p>Argo CD watches git and keeps six Applications Synced/Healthy. Nothing in the cluster is hand-applied; if you edit live state, selfHeal puts it back.</p>
+      </div>
+      <div class="pblock">
+        <h3>Durability loop</h3>
+        <p>Every closed WAL segment ships to S3; a base backup lands every 6 hours. RPO = the currently-open segment, measured on two clouds.</p>
+      </div>
+      <div class="pblock">
+        <h3>Why the drills matter now</h3>
+        <p>The database finally holds data you'd mind losing — the cluster's own records. Each drill kills one box above and asks: do those six IPs come back?</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" data-panel="d1" hidden>
+    <h2>1 · Failover under load</h2>
+    <p class="delta">Diagram: <b>pg-1 goes red</b>, the PRIMARY badge jumps to <b>pg-2</b>, pooler and NetBox run amber while the load chip hammers the front door.</p>
+    <div class="pgrid">
+      <div class="pblock fire">
+        <h3>You fire</h3>
+        <p><code>kubectl -n postgres-cnpg delete pod pg-1</code> — while a load generator holds sustained requests against NetBox. I set up the load and the watchers first.</p>
+      </div>
+      <div class="pblock">
+        <h3>What happens</h3>
+        <p>The CNPG operator notices the lost primary and promotes pg-2 — a <em>centralized</em> decision, unlike Patroni's self-managed election from 7.3. The pooler's rw endpoint follows the badge.</p>
+      </div>
+      <div class="pblock">
+        <h3>Watch</h3>
+        <p>HTTP error rate on the load tool, <code>kubectl cnpg status pg</code>, and the pooler repointing. Expect a seconds-long window of failed writes, then silence.</p>
+      </div>
+      <div class="pblock">
+        <h3>Healthy again when</h3>
+        <p>pg-1 rejoins as the replica (its PVC survived, so no re-clone needed), object counts are unchanged, and zero rows were lost — the pod died, the disk didn't.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" data-panel="d2" hidden>
+    <h2>2 · Migrations at replicaCount: 3</h2>
+    <p class="delta">Diagram: <b>pods 2 and 3 solidify</b> — NetBox becomes three identical webs sharing one schema, and pg-1 runs amber while DDL takes locks.</p>
+    <div class="pgrid">
+      <div class="pblock fire">
+        <h3>You fire</h3>
+        <p>A git commit: <code>replicaCount: 3</code> plus a NetBox version bump in <code>netbox.yaml</code>. Argo CD does the rest — no kubectl.</p>
+      </div>
+      <div class="pblock">
+        <h3>What happens</h3>
+        <p>The upgrade runs schema migrations while three pods serve. For a window, old code runs against new schema (or the reverse) — the classic many-apps-one-database problem, staged deliberately.</p>
+      </div>
+      <div class="pblock">
+        <h3>Watch</h3>
+        <p>Migration locks in <code>pg_stat_activity</code>, rolling-update order, and whether any request 500s mid-roll. Migrations must apply exactly once, not once per pod.</p>
+      </div>
+      <div class="pblock">
+        <h3>Healthy again when</h3>
+        <p>3/3 pods Ready on the new version, one clean migration history, no dropped requests you can't explain.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" data-panel="d3" hidden>
+    <h2>3 · Cache vs queue — kill Valkey</h2>
+    <p class="delta">Diagram: <b>Valkey goes red</b>; NetBox web and worker run amber for different reasons — that difference is the whole lesson.</p>
+    <div class="pgrid">
+      <div class="pblock fire">
+        <h3>You fire</h3>
+        <p><code>kubectl -n netbox delete pod netbox-valkey-primary-0</code>. It's standalone by deliberate choice — no replica to save us.</p>
+      </div>
+      <div class="pblock">
+        <h3>What happens</h3>
+        <p>Two very different losses from one pod: the <strong>cache</strong> is rebuildable — pages go slower until it re-warms. The <strong>queue</strong> is not — RQ jobs in flight (webhooks, reports) are simply gone.</p>
+      </div>
+      <div class="pblock">
+        <h3>Watch</h3>
+        <p>Page latency (cache misses), worker logs (which jobs vanished), and whether NetBox errors or merely degrades. Enqueue a job before firing so there's something to lose.</p>
+      </div>
+      <div class="pblock">
+        <h3>Healthy again when</h3>
+        <p>Valkey is back, latency normal, queues draining — and you can name exactly which work was lost. "Stateless" dependencies rarely are.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" data-panel="d4" hidden>
+    <h2>4 · Restore with the app attached</h2>
+    <p class="delta">Diagram: a <b>new pg-restore cluster appears, fed from S3</b> (the teal PITR path); the old cluster fades and NetBox's SQL line swings over to the restored database.</p>
+    <div class="pgrid">
+      <div class="pblock fire">
+        <h3>You fire</h3>
+        <p>An "oops" first — delete a real VM record in NetBox and note the time. Then apply a recovery <code>Cluster</code> bootstrapped from <code>barmanObjectStore</code> with a <code>recoveryTarget</code> just before the oops.</p>
+      </div>
+      <div class="pblock">
+        <h3>What happens</h3>
+        <p>CNPG pulls the nearest base backup from S3 and replays WAL up to the target — the 7.4 restore drill, but this time an application must come back with its data, not just a psql prompt.</p>
+      </div>
+      <div class="pblock">
+        <h3>Watch</h3>
+        <p>Recovery logs on the new cluster, then NetBox after its DB host secret is repointed. The deleted record must exist again; anything written <em>after</em> the target must not.</p>
+      </div>
+      <div class="pblock">
+        <h3>Healthy again when</h3>
+        <p>Counts match the pre-oops state, NetBox serves from the restored cluster, and the new cluster is archiving WAL to S3 again — restore that doesn't resume backups isn't done.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" data-panel="d5" hidden>
+    <h2>5 · Full rebuild from git + S3</h2>
+    <p class="delta">Diagram: <b>everything inside the cluster boundary dims</b>. Only three boxes stay lit — GitHub, S3, and the laptop's secret files. That's the entire recovery kit.</p>
+    <div class="pgrid">
+      <div class="pblock fire">
+        <h3>You fire</h3>
+        <p><code>make destroy</code>, then the full bring-up: <code>make up</code> → <code>bootstrap</code> → <code>platform</code>, repoint the Cloudflare A record, run <code>populate.sh</code>.</p>
+      </div>
+      <div class="pblock">
+        <h3>What happens</h3>
+        <p>Nodes, PVCs, pods — all gone. Git re-creates the <em>platform</em> (Argo CD converges six apps hands-off). S3 re-creates the <em>data</em> (recovery bootstrap). The laptop re-seeds the secrets, and populate.sh self-heals its own API token.</p>
+      </div>
+      <div class="pblock">
+        <h3>Watch</h3>
+        <p>How little you type. Every manual step you catch yourself doing is a gap in git, the Makefile, or platform.sh — the drill's real output is that list.</p>
+      </div>
+      <div class="pblock">
+        <h3>Healthy again when</h3>
+        <p>Six apps Synced/Healthy, NetBox reachable at its name, and the same counts — 1 site, 3 VMs, 4 prefixes, 6 IPs — on brand-new machines. Cluster as cattle, proven end to end.</p>
+      </div>
+    </div>
+  </section>
+
+  <div class="ladder">
+    <h2>The durability ladder — what survives what</h2>
+    <div class="rungs">
+      <div class="rung">
+        <div class="who">pods</div>
+        <div class="dies">die constantly · drills 1–3 live here</div>
+      </div>
+      <div class="sep">&lt;</div>
+      <div class="rung">
+        <div class="who">PVCs / node disks</div>
+        <div class="dies">die with their node, or drill 4's cluster swap</div>
+      </div>
+      <div class="sep">&lt;</div>
+      <div class="rung">
+        <div class="who">the cluster</div>
+        <div class="dies">dies at <span style="font-family:var(--mono)">make destroy</span> · drill 5</div>
+      </div>
+      <div class="sep">&lt;</div>
+      <div class="rung last">
+        <div class="who">git + S3 + laptop files</div>
+        <div class="dies">survived even the account suspension (ADR 010)</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var svg = document.getElementById('diagram');
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('.tab'));
+  var panels = Array.prototype.slice.call(document.querySelectorAll('.panel'));
+
+  var el = function (id) { return document.getElementById(id); };
+  var ALL_BOXES = ['you','git','laptop','gateway','argocd','netboxpod1','netboxpod2','netboxpod3',
+                   'datachip','worker','valkey','operator','pooler','pg1','pg2','pgrestore','s3'];
+  var STATE_CLASSES = ['killed','stressed','newer','survivor','dim'];
+
+  // per-state paint instructions
+  var STATES = {
+    d0: {},
+    d1: {
+      killed: ['pg1'], newer: ['pg2'], stressed: ['pooler','netboxpod1'],
+      show: ['loadchip','pg2badge'], hideBadge1: true
+    },
+    d2: {
+      newer: ['netboxpod2','netboxpod3'], stressed: ['pg1']
+    },
+    d3: {
+      killed: ['valkey'], stressed: ['netboxpod1','worker']
+    },
+    d4: {
+      killed: ['pg1','pg2'], stressed: ['pooler'], newer: ['pgrestore','netboxpod1'],
+      show: ['pgrestore','a-pitr','l-pitr','a-repoint','l-repoint'],
+      hideArrows: ['a-sql','a-pool','a-repl','a-wal'], hideBadge1: true
+    },
+    d5: {
+      dim: ['gateway','argocd','netboxpod1','netboxpod2','netboxpod3','datachip','worker',
+            'valkey','operator','pooler','pg1','pg2'],
+      survivor: ['git','s3','laptop'],
+      dimArrows: ['a-gw','a-sql','a-cache','a-dequeue','a-pool','a-repl','a-dep1','a-dep2','a-you']
+    }
+  };
+
+  var TOGGLEABLE = ['loadchip','pgrestore','a-pitr','l-pitr','a-repoint','l-repoint'];
+  var GHOSTED_ARROWS = ['a-sql','a-pool','a-repl','a-wal','a-gw','a-cache','a-dequeue','a-dep1','a-dep2','a-you'];
+
+  function apply(state) {
+    var s = STATES[state] || {};
+    ALL_BOXES.forEach(function (id) {
+      var node = el(id);
+      if (!node) return;
+      STATE_CLASSES.forEach(function (c) { node.classList.remove(c); });
+    });
+    TOGGLEABLE.forEach(function (id) { el(id).classList.add('hidden'); });
+    GHOSTED_ARROWS.forEach(function (id) {
+      el(id).classList.remove('ghosted');
+      el(id).style.display = '';
+    });
+    el('pg1badge').classList.remove('hidden');
+    el('pg2badge').classList.add('hidden');
+
+    ['killed','stressed','newer','survivor','dim'].forEach(function (cls) {
+      (s[cls] || []).forEach(function (id) { el(id) && el(id).classList.add(cls); });
+    });
+    (s.show || []).forEach(function (id) { el(id) && el(id).classList.remove('hidden'); });
+    (s.hideArrows || []).forEach(function (id) { el(id).style.display = 'none'; });
+    (s.dimArrows || []).forEach(function (id) { el(id).classList.add('ghosted'); });
+    if (s.hideBadge1) { el('pg1badge').classList.add('hidden'); }
+
+    tabs.forEach(function (t) {
+      t.setAttribute('aria-pressed', String(t.dataset.state === state));
+    });
+    panels.forEach(function (p) {
+      p.hidden = (p.dataset.panel !== state);
+    });
+  }
+
+  tabs.forEach(function (t) {
+    t.addEventListener('click', function () { apply(t.dataset.state); });
+  });
+  apply('d0');
+})();
+</script>
