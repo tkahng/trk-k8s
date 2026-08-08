@@ -164,6 +164,22 @@ for f in netbox-db-password netbox-secret-key netbox-superuser-password netbox-a
   fi
 done
 
+# API token, SEPARATE from the pepper. NetBox 4.6 redesigned tokens: a v2
+# token is presented as `Bearer nbt_<key>.<token>` where <key> is a 12-char
+# public identifier and <token> a 40-char secret whose HMAC — computed with
+# one of API_TOKEN_PEPPERS — is what's stored. (Which is what the pepper is
+# FOR; the pepper itself is never a credential.) Reusing the 64-char pepper
+# as api_token earned a 403 "Invalid v1 token": v1 plaintext tokens must be
+# exactly 40 chars.
+# Alphanumeric only (NetBox's TOKEN_CHARSET) — base64's +/= are not in it.
+for f in netbox-api-key:12 netbox-api-token:40; do
+  name="${f%%:*}"; len="${f##*:}"
+  if [ ! -f "$NB_DIR/$name" ]; then
+    (umask 077 && LC_ALL=C tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c "$len" > "$NB_DIR/$name")
+    echo "  generated $NB_DIR/$name ($len chars)"
+  fi
+done
+
 kubectl get ns netbox > /dev/null 2>&1 || kubectl create ns netbox > /dev/null
 NB_DB_PW="$(cat "$NB_DIR/netbox-db-password")"
 
@@ -190,12 +206,21 @@ for ns in postgres-cnpg netbox; do
 done
 
 if ! kubectl -n netbox get secret netbox-superuser > /dev/null 2>&1; then
+  # api_key + api_token feed the entrypoint's super_user.py, which mints the
+  # v2 token on FIRST boot — if both reach it. Chart 8.3.46 lags the app: its
+  # projected-secret volume maps only superuser_password and
+  # superuser_api_token into /run/secrets, not superuser_api_key, so the
+  # entrypoint's `su_api_key and su_api_token` guard fails and no token is
+  # created at all. populate.sh self-heals that by minting the same
+  # key/token pair via the ORM. When the chart catches up, the boot path
+  # takes over and the self-heal becomes a no-op.
   kubectl -n netbox create secret generic netbox-superuser \
     --type=kubernetes.io/basic-auth \
     --from-literal=username=admin \
     --from-literal=email=admin@k8s.kahng.dev \
     --from-literal=password="$(cat "$NB_DIR/netbox-superuser-password")" \
-    --from-literal=api_token="$(cat "$NB_DIR/netbox-api-pepper")" > /dev/null
+    --from-literal=api_key="$(cat "$NB_DIR/netbox-api-key")" \
+    --from-literal=api_token="$(cat "$NB_DIR/netbox-api-token")" > /dev/null
   echo "  netbox-superuser secret created"
 fi
 
