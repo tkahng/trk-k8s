@@ -3,9 +3,11 @@
 Goal: build a real multi-node Kubernetes cluster from scratch — machines
 provisioned with the **Pulumi Go SDK**, cluster bootstrapped with **kubeadm** —
 and document everything learned along the way. The cluster core is
-**provider-agnostic**: currently targeting Azure, previously AWS (account lost
-2026-08-05) and Hetzner (no capacity), and deliberately deployable on-prem.
-The AWS→Azure migration tested that claim and it held — see ADR 009.
+**provider-agnostic**: currently AWS (restored after a brief suspension),
+with Azure (ADR 009/010) and Hetzner programs kept as reference, and
+deliberately deployable on-prem. The claim has now been tested in BOTH
+directions — aws→azure and azure→aws — and `cluster/` was untouched both
+times.
 
 A named end-goal beyond the cluster itself: **running PostgreSQL properly in
 Kubernetes** (StatefulSets → PgBouncer → Patroni/ZooKeeper HA → operators),
@@ -15,8 +17,8 @@ culminating in a real prebuilt Postgres-backed stack like Saleor or Supabase
 ## Architecture: two layers, one seam
 
 ```
-infra/azure/     ── provider-specific ──┐   (current)
-infra/aws/       ── provider-specific ──┤   (dead: account lost)
+infra/aws/       ── provider-specific ──┐   (current)
+infra/azure/     ── provider-specific ──┤   (retired: ADR 010)
 infra/hetzner/   ── provider-specific ──┤──▶  "nodes" inventory contract
 (on-prem: hand-written inventory) ──────┘         │
                                                   ▼
@@ -34,8 +36,8 @@ the core cluster must work without them, or it isn't portable.
 | Decision | Choice | Record |
 |---|---|---|
 | Topology | 1 control plane + 2 workers | — |
-| Provider (current) | **Azure eastus** — D2als_v7 ×3 (2 vCPU/4 GiB each, matching the AWS baseline; ~$0.256/hr all in — no burstable SKU is reachable) | ADR 009 |
-| Provider (dead) | AWS — account access lost 2026-08-05; `infra/aws*` kept as reference | ADR 002, 009 |
+| Provider (current) | **AWS us-east-1** again — t3a.medium ×3, ~$0.135/hr; account restored, suspension preserved every resource | ADR 010 |
+| Provider (retired) | Azure — used 2026-08-05→06 during the AWS suspension; subscription emptied to $0, `infra/azure/` kept as reference (state deleted, code only) | ADR 009, 010 |
 | Provider (parked) | Hetzner CX23 — no VM capacity July 2026; program kept in `infra/hetzner/` | ADR 001, 002 |
 | Portability | Provider-agnostic cluster layer + node inventory contract — **PROVEN 2026-08-05**: `cluster/` unchanged, `bootstrap.sh` worked first try on Azure | ADR 002, 009 |
 | CNI | Cilium | — |
@@ -43,12 +45,9 @@ the core cluster must work without them, or it isn't portable.
 | IaC | Pulumi Go SDK | — |
 | Pulumi state | Azure Blob in `rg-trk-k8s-persistent` (self-managed backend, **Key Vault** secrets) | ADR 009 |
 
-Cost: ~$0.256/hr on Azure, ~1.9× AWS's ~$0.135/hr for identical specs — no
-burstable SKU is reachable on this subscription (three independent quota
-layers; see the 2026-08-06 journal). A 3-hour lab is ~$0.77.
-**Now on pay-as-you-go**, which lifted the vCPU quota but also removed the
-spending limit that made overspend physically impossible — `make destroy` is
-the only remaining guard, so teardown is budget discipline, not tidiness.
+Cost: back to ~$0.135/hr on AWS (t3a.medium ×3). Idle cost is pennies of S3
+(state + backups). The Azure detour peaked at ~$0.256/hr because no
+burstable SKU was reachable there (see the 2026-08-06 journal).
 
 ## Phases
 

@@ -7,7 +7,7 @@
 #   ArgoCD deploy key: ~/.ssh/argocd_trk_k8s
 #
 # The optional cloud storage addon is chosen by the caller:
-#   --provider=azure (default) | aws | none      (on-prem/hetzner -> none)
+#   --provider=aws (default) | azure | none      (on-prem/hetzner -> none)
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -18,7 +18,7 @@ ARGOCD_KEY="$HOME/.ssh/argocd_trk_k8s"
 # DETECTS the provider (the inventory contract deliberately doesn't carry
 # one) — the caller names it. local-path stays the default StorageClass
 # either way, so `none` is a fully working cluster (ADR 002/003).
-PROVIDER="${PROVIDER:-azure}"
+PROVIDER="${PROVIDER:-aws}"
 case "${1:-}" in
   --provider=*) PROVIDER="${1#--provider=}" ;;
   --no-aws)     PROVIDER=none ;;   # back-compat with the pre-Azure flag

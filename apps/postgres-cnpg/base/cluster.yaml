@@ -61,35 +61,28 @@ spec:
         passwordSecret:
           name: netbox-db
 
-  # THE capability neither stack had before 7.4, now ported to Azure.
-  # Drill 3 proved etcd snapshots don't cover PV data; 7.1 proved a
-  # `destroy` takes the database with it. The AWS version measured a real
-  # restore at RPO = one open WAL segment (exactly 1 row of 660) before the
-  # account — and every byte in it — was lost. This is that capability
-  # rebuilt on blob storage.
-  #
-  # Two mechanisms, both barman-cloud inside the instance:
-  #   - WAL archiving: every closed segment ships to blob. What makes
-  #     point-in-time recovery possible at all.
+  # THE capability neither stack had before 7.4. Drill 3 proved etcd
+  # snapshots don't cover PV data; 7.1 proved a `destroy` takes the
+  # database with it. Ported to Azure Blob during the ADR 009 exile and
+  # back to S3 on the return (ADR 010) — same two mechanisms both times:
+  #   - WAL archiving: every closed segment ships to object storage. What
+  #     makes point-in-time recovery possible at all.
   #   - Base backups: periodic full copies (scheduledbackup.yaml); recovery
   #     = nearest base backup + replay WAL forward.
+  # RPO measured on BOTH clouds: the currently-open WAL segment.
   backup:
     retentionPolicy: 7d
     barmanObjectStore:
-      # The container lives in rg-trk-k8s-persistent, which carries a
-      # CanNotDelete lock — so backups survive `make destroy` by platform
-      # enforcement, not by convention (ADR 008/009).
-      destinationPath: https://sttrkk8sf92a7ab3.blob.core.windows.net/pg-backups
-      azureCredentials:
-        # No credential Secret anywhere. The node's user-assigned managed
-        # identity (id-trk-k8s-node) holds Storage Blob Data Contributor on
-        # this container, and barman reaches it over IMDS — the Azure
-        # counterpart to AWS's inheritFromIAMRole.
-        # TRADE-OFF unchanged from ADR 007: identity is NODE-scoped, so any
-        # pod on the node could reach the container. Workload Identity would
-        # scope per-ServiceAccount but needs an OIDC issuer kubeadm doesn't
-        # publish.
-        inheritFromAzureAD: true
+      # Back on S3 (ADR 010): the bucket in infra/aws-persistent SURVIVED
+      # the account suspension — suspended accounts keep their resources.
+      # It still holds the pre-suspension base backups, proof the ADR 008
+      # boundary held across the harshest lifecycle event yet.
+      destinationPath: s3://trk-k8s-pg-backups/
+      s3Credentials:
+        # Node IAM role over IMDS, no credential Secret (the hop-limit-3
+        # path from Phase 4). TRADE-OFF (ADR 007): node-scoped — any pod on
+        # the node can reach the bucket; IRSA needs an OIDC provider.
+        inheritFromIAMRole: true
       wal:
         compression: gzip
       data:
