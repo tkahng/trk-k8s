@@ -43,7 +43,7 @@ the core cluster must work without them, or it isn't portable.
 | CNI | Cilium | — |
 | Bootstrap | Manual kubeadm via SSH first; automate in Phase 6 | — |
 | IaC | Pulumi Go SDK | — |
-| Pulumi state | Azure Blob in `rg-trk-k8s-persistent` (self-managed backend, **Key Vault** secrets) | ADR 009 |
+| Pulumi state | S3 `tkahng-pulumi-state` again (self-managed backend, passphrase secrets — survived the suspension) | ADR 002, 010 |
 
 Cost: back to ~$0.135/hr on AWS (t3a.medium ×3). Idle cost is pennies of S3
 (state + backups). The Azure detour peaked at ~$0.256/hr because no
@@ -53,8 +53,8 @@ burstable SKU was reachable there (see the 2026-08-06 journal).
 
 ### Phase 0 — Prerequisites ✅ (mostly done)
 - [x] Tooling: pulumi, Go, kubectl, hcloud CLI
-- [x] Dedicated SSH keypairs, one per provider: `~/.ssh/azure_k8s` (current),
-      `~/.ssh/aws_k8s`, `~/.ssh/hetzner_k8s`
+- [x] Dedicated SSH keypairs, one per provider: `~/.ssh/aws_k8s` (current),
+      `~/.ssh/azure_k8s`, `~/.ssh/hetzner_k8s`
 - [x] Azure account hardening + foundation, SCRIPTED this time
       (`infra/azure/foundation.sh`): locked persistent resource group, versioned
       state storage, **Key Vault** secrets provider, service principal,
