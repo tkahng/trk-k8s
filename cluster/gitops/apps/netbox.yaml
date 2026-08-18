@@ -105,7 +105,7 @@ spec:
         # persistence off (we store no uploads; all NetBox data that matters
         # is in Postgres) + hard anti-affinity = exactly one web pod per
         # 4Gi worker. Two workers, two replicas — the honest number.
-        replicaCount: 2
+        replicaCount: 1   # stood down from 2 while worker-2 recovers; see journal
         persistence:
           enabled: false
         affinity:
