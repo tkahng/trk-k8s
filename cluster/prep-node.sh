@@ -32,25 +32,23 @@ net.ipv4.ip_forward                 = 1
 EOF
 sysctl --system > /dev/null
 
-echo "=== [$NODE_NAME] A3.5: apt mirror reachability"
+echo "=== [$NODE_NAME] A3.5: apt mirror normalization"
 # Cloud images pin apt to a cloud-local mirror (azure.archive.ubuntu.com,
-# <region>.ec2.archive.ubuntu.com) — and that mirror can be dead FROM INSIDE
-# the cloud while the global archive answers fine. Hit on Azure 2026-08-17:
-# the regional mirror timed out on port 80 from every node, failing prep on
-# a fresh cluster. If the configured mirror doesn't answer, fall back to the
-# global archive: slower, but never a single-cloud point of failure.
+# <region>.ec2.archive.ubuntu.com). Those hostnames are DNS pools, and the
+# pool can carry DEAD members: on Azure 2026-08-17 a reachability probe
+# passed ("mirror ok") and apt still timed out seconds later on a different
+# pool IP — two runs, two different dead addresses. You cannot probe your
+# way out of a lottery, so don't play: always rewrite the cloud-local
+# mirror to the global archive. Slower downloads, deterministic bootstrap —
+# the right trade for a 3-node lab that rebuilds constantly.
 # noble uses deb822 (/etc/apt/sources.list.d/ubuntu.sources); older images
 # use sources.list — handle both.
 MIRROR="$(grep -rhoE 'https?://[a-z0-9.-]*archive\.ubuntu\.com' \
   /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null | sort -u | head -1)"
-if command -v curl >/dev/null && [ -n "$MIRROR" ] && [ "${MIRROR#*//}" != "archive.ubuntu.com" ]; then
-  if ! curl -sf -m 8 -o /dev/null "$MIRROR/ubuntu/"; then
-    echo "  mirror $MIRROR unreachable — falling back to archive.ubuntu.com"
-    sed -i "s|${MIRROR#*//}|archive.ubuntu.com|g" \
-      /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
-  else
-    echo "  mirror $MIRROR ok"
-  fi
+if [ -n "$MIRROR" ] && [ "${MIRROR#*//}" != "archive.ubuntu.com" ]; then
+  echo "  ${MIRROR#*//} -> archive.ubuntu.com (cloud-local pools can carry dead members)"
+  sed -i "s|${MIRROR#*//}|archive.ubuntu.com|g" \
+    /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
 fi
 
 echo "=== [$NODE_NAME] A4: containerd"
