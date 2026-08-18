@@ -1,0 +1,585 @@
+<title>trk-k8s · AWS ⇄ Azure resource map</title>
+<style>
+  :root {
+    --ground: #f5f6f8;
+    --surface: #ffffff;
+    --surface-2: #edf0f2;
+    --ink: #1e2730;
+    --muted: #5d6b77;
+    --line: #d5dce2;
+    --aws: #a86400;          /* amber — AWS side */
+    --aws-tint: #f7edda;
+    --az: #1a6fb8;           /* azure — Azure side */
+    --az-tint: #e2eef8;
+    --k8s: #0e8a83;          /* teal — the contract & cluster layer */
+    --k8s-tint: #e0f0ee;
+    --code-bg: #eef1f3;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #10151a;
+      --surface: #171f26;
+      --surface-2: #1e2831;
+      --ink: #e5ecf2;
+      --muted: #8fa0ad;
+      --line: #2b3844;
+      --aws: #e0a33e;
+      --aws-tint: #33270f;
+      --az: #5aa7e0;
+      --az-tint: #14293a;
+      --k8s: #3cb8af;
+      --k8s-tint: #143432;
+      --code-bg: #0d1418;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #10151a;
+    --surface: #171f26;
+    --surface-2: #1e2831;
+    --ink: #e5ecf2;
+    --muted: #8fa0ad;
+    --line: #2b3844;
+    --aws: #e0a33e;
+    --aws-tint: #33270f;
+    --az: #5aa7e0;
+    --az-tint: #14293a;
+    --k8s: #3cb8af;
+    --k8s-tint: #143432;
+    --code-bg: #0d1418;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.6;
+    margin: 0;
+    padding: 42px 20px 80px;
+  }
+  .wrap { max-width: 1040px; margin: 0 auto; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--k8s);
+    margin: 0 0 10px;
+  }
+  h1 {
+    font-family: var(--mono);
+    font-size: clamp(25px, 3.8vw, 36px);
+    font-weight: 600;
+    line-height: 1.18;
+    letter-spacing: -.01em;
+    margin: 0 0 6px;
+    text-wrap: balance;
+  }
+  h1 .aws-w { color: var(--aws); }
+  h1 .az-w { color: var(--az); }
+  .lede { max-width: 70ch; color: var(--muted); font-size: 16px; margin: 10px 0 0; }
+  .lede strong { color: var(--ink); }
+
+  nav.toc {
+    display: flex; flex-wrap: wrap; gap: 6px 14px;
+    font-family: var(--mono); font-size: 12px;
+    margin: 24px 0 8px;
+  }
+  nav.toc a { color: var(--muted); text-decoration: none; border-bottom: 1px dotted var(--line); }
+  nav.toc a:hover { color: var(--k8s); border-bottom-color: var(--k8s); }
+  nav.toc a:focus-visible { outline: 2px solid var(--k8s); outline-offset: 2px; }
+
+  section { margin-top: 46px; }
+  h2 {
+    font-family: var(--mono);
+    font-size: 19px;
+    font-weight: 600;
+    margin: 0 0 4px;
+    text-wrap: balance;
+  }
+  h2 .num { color: var(--k8s); margin-right: 8px; }
+  .kicker {
+    font-family: var(--mono); font-size: 12px; color: var(--muted);
+    letter-spacing: .06em; margin: 0 0 14px;
+  }
+  p { max-width: 74ch; margin: 10px 0; font-size: 15px; }
+  code {
+    font-family: var(--mono); font-size: .88em;
+    background: var(--code-bg); border: 1px solid var(--line);
+    border-radius: 5px; padding: 1px 6px;
+  }
+
+  .fig {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px;
+    overflow-x: auto;
+    margin: 16px 0;
+  }
+  .fig svg { display: block; min-width: 720px; width: 100%; height: auto; }
+  .fig figcaption {
+    font-family: var(--mono); font-size: 11.5px; color: var(--muted);
+    padding: 8px 6px 2px; letter-spacing: .04em;
+  }
+
+  svg text { font-family: var(--mono); fill: var(--ink); }
+  .t-main { font-size: 12.5px; font-weight: 600; }
+  .t-sub  { font-size: 10.5px; fill: var(--muted); }
+  .t-tag  { font-size: 10px; letter-spacing: .1em; fill: var(--muted); }
+  .box rect { fill: var(--surface-2); stroke: var(--line); stroke-width: 1.3; rx: 7; }
+  .box.aws-b rect { stroke: var(--aws); fill: var(--aws-tint); }
+  .box.az-b rect  { stroke: var(--az);  fill: var(--az-tint); }
+  .box.k8s-b rect { stroke: var(--k8s); fill: var(--k8s-tint); stroke-width: 1.8; }
+  .zone > rect { fill: none; stroke: var(--line); stroke-dasharray: 5 4; rx: 10; }
+  .zone.aws-z > rect { stroke: var(--aws); }
+  .zone.az-z > rect  { stroke: var(--az); }
+  .arrow { stroke: var(--muted); stroke-width: 1.4; fill: none; marker-end: url(#m-arr); }
+  .arrow.dashed { stroke-dasharray: 4 4; }
+  .arrow.aws-a { stroke: var(--aws); }
+  .arrow.az-a  { stroke: var(--az); }
+  .arrow.k8s-a { stroke: var(--k8s); stroke-width: 2; }
+
+  /* three-column comparison rows */
+  .cmp {
+    display: grid;
+    grid-template-columns: 1fr minmax(150px, .8fr) 1fr;
+    gap: 0;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+    margin: 16px 0;
+    background: var(--surface);
+  }
+  .cmp > div {
+    padding: 12px 16px;
+    font-size: 13.5px;
+    border-top: 1px solid var(--line);
+  }
+  .cmp > .hd { border-top: none; background: var(--surface-2);
+    font-family: var(--mono); font-size: 11px; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--muted); padding: 9px 16px; }
+  .cmp .c-aws { border-left: 3px solid var(--aws); }
+  .cmp .c-az  { border-left: 3px solid var(--az); }
+  .cmp .c-mid {
+    background: var(--surface-2);
+    font-family: var(--mono); font-size: 12px; color: var(--ink);
+    display: flex; align-items: center;
+  }
+  .cmp .hd.c-aws { color: var(--aws); }
+  .cmp .hd.c-az  { color: var(--az); }
+  @media (max-width: 720px) {
+    .cmp { grid-template-columns: 1fr; }
+    .cmp .c-mid { order: -1; }
+    .cmp > div { border-top: 1px solid var(--line); }
+  }
+
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  .tbl { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); margin: 16px 0; }
+  th, td { text-align: left; padding: 10px 14px; border-top: 1px solid var(--line); vertical-align: top; }
+  thead th { border-top: none; background: var(--surface-2);
+    font-family: var(--mono); font-size: 11px; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--muted); }
+  td:first-child { font-family: var(--mono); font-size: 12.5px; white-space: nowrap; }
+
+  .pill {
+    display: inline-block; font-family: var(--mono); font-size: 11px;
+    border: 1px solid var(--line); border-radius: 999px;
+    padding: 2px 10px; margin: 2px 3px 2px 0; background: var(--surface-2);
+  }
+  .pill.p-k8s { border-color: var(--k8s); color: var(--k8s); background: var(--k8s-tint); }
+
+  .thesis {
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--k8s);
+    background: var(--surface);
+    border-radius: 10px;
+    padding: 18px 22px;
+    margin-top: 46px;
+    max-width: 78ch;
+  }
+  .thesis p { margin: 0; font-size: 15px; }
+</style>
+
+<div class="wrap">
+  <p class="eyebrow">trk-k8s · adr 011 · companion to docs/notes/aws-azure-resource-map.md</p>
+  <h1><span class="aws-w">AWS infers</span>, <span class="az-w">Azure declares</span> — and Kubernetes never notices</h1>
+  <p class="lede">Every resource both providers create, keyed to the <strong>part of Kubernetes it exists for</strong>. Kubernetes only ever sees four things: machines that reach each other, an apiserver port, an identity on the metadata service, and an object store for backups. Everything on this page is scaffolding for one of those four — and the proof is that <code>cluster/</code> has survived three provider swaps unchanged.</p>
+
+  <nav class="toc" aria-label="Sections">
+    <a href="#funnel">the funnel</a>
+    <a href="#s1">1 machines</a>
+    <a href="#s2">2 addressing</a>
+    <a href="#s3">3 fabric</a>
+    <a href="#s4">4 edge</a>
+    <a href="#s5">5 identity</a>
+    <a href="#s6">6 durable half</a>
+    <a href="#s7">7 iac state</a>
+    <a href="#s8">8 absences</a>
+  </nav>
+
+  <!-- ================= HERO FUNNEL ================= -->
+  <section id="funnel">
+    <figure class="fig" style="margin-top:10px">
+    <svg viewBox="0 0 1000 470" role="img" aria-label="Both providers' resources converge into the five-field nodes contract, which is all the cluster layer consumes">
+      <defs>
+        <marker id="m-arr" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L8,4 L0,8 z" fill="var(--muted)"></path>
+        </marker>
+      </defs>
+
+      <g class="box aws-b">
+        <rect x="24" y="20" width="300" height="248"></rect>
+        <text x="44" y="48" class="t-main">infra/aws · 15 resources</text>
+        <text x="44" y="74"  class="t-sub">Vpc · Subnet · InternetGateway</text>
+        <text x="44" y="92"  class="t-sub">RouteTable (+ association)</text>
+        <text x="44" y="110" class="t-sub">SecurityGroup (rules inline)</text>
+        <text x="44" y="128" class="t-sub">KeyPair</text>
+        <text x="44" y="146" class="t-sub">IAM Role + InstanceProfile</text>
+        <text x="44" y="164" class="t-sub">PolicyAttachment ×2 (EBS CSI, backups)</text>
+        <text x="44" y="182" class="t-sub">Instance ×3 (NIC + public IP implied)</text>
+        <text x="44" y="214" class="t-tag">STATE: S3 + PASSPHRASE FILE</text>
+        <text x="44" y="232" class="t-tag">DURABLE: 2nd PULUMI STACK</text>
+        <text x="44" y="250" class="t-tag">~$0.135/HR · T3A.MEDIUM ×3</text>
+      </g>
+
+      <g class="box az-b">
+        <rect x="676" y="20" width="300" height="248"></rect>
+        <text x="696" y="48" class="t-main">infra/azure · 14 resources</text>
+        <text x="696" y="74"  class="t-sub">ResourceGroup (ephemeral)</text>
+        <text x="696" y="92"  class="t-sub">NetworkSecurityGroup (rule objects)</text>
+        <text x="696" y="110" class="t-sub">VirtualNetwork · Subnet (separate)</text>
+        <text x="696" y="128" class="t-sub">PublicIPAddress ×3 (Standard/Static)</text>
+        <text x="696" y="146" class="t-sub">NetworkInterface ×3</text>
+        <text x="696" y="164" class="t-sub">VirtualMachine ×3 (identity by config)</text>
+        <text x="696" y="182" class="t-sub">— no IGW, no routes, no keypair —</text>
+        <text x="696" y="214" class="t-tag">STATE: AZBLOB + KEY VAULT</text>
+        <text x="696" y="232" class="t-tag">DURABLE: LOCKED RESOURCE GROUP</text>
+        <text x="696" y="250" class="t-tag">~$0.256/HR · D2ALS_V7 ×3</text>
+      </g>
+
+      <path class="arrow aws-a" d="M324,144 C400,144 420,190 462,196"></path>
+      <path class="arrow az-a"  d="M676,144 C600,144 580,190 538,196"></path>
+
+      <g class="box k8s-b">
+        <rect x="330" y="190" width="340" height="96"></rect>
+        <text x="500" y="216" text-anchor="middle" class="t-main">the nodes contract</text>
+        <text x="500" y="238" text-anchor="middle" class="t-sub">[{ name · role · publicIp · privateIp · sshUser }]</text>
+        <text x="500" y="258" text-anchor="middle" class="t-sub">pulumi stack output nodes — five fields,</text>
+        <text x="500" y="272" text-anchor="middle" class="t-sub">the ONLY surface Kubernetes touches</text>
+      </g>
+
+      <path class="arrow k8s-a" d="M500,286 L500,318"></path>
+
+      <g class="box">
+        <rect x="240" y="320" width="520" height="82"></rect>
+        <text x="500" y="346" text-anchor="middle" class="t-main">cluster/ — provider-agnostic</text>
+        <text x="500" y="366" text-anchor="middle" class="t-sub">kubeadm · Cilium (eBPF, kube-proxy-free) · Gateway API · ArgoCD · CNPG</text>
+        <text x="500" y="384" text-anchor="middle" class="t-sub">bootstrap.sh · platform.sh · prep-node.sh — consume only the contract</text>
+      </g>
+
+      <text x="500" y="436" text-anchor="middle" class="t-tag">UNCHANGED THROUGH THREE SWAPS: AWS→AZURE (ADR 009) · AZURE→AWS (ADR 010) · AWS→AZURE (ADR 011)</text>
+      <text x="500" y="454" text-anchor="middle" class="t-tag">SAME ADDRESS PLAN EVERYWHERE: 10.0.0.0/16 · NODES AT 10.0.1.10–12</text>
+    </svg>
+    <figcaption>The funnel: fifteen amber resources and fourteen blue ones exist so that five teal fields can be true.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ================= 1 MACHINES ================= -->
+  <section id="s1">
+    <h2><span class="num">1</span>The machines — where kubelet lives</h2>
+    <p class="kicker">FOR KUBERNETES: the kubelet's host. container images + local-path PVs live on this disk.</p>
+    <p>The sharpest structural difference on the whole page. AWS's instance is <strong>one resource that implies its networking</strong>; Azure decomposes the same machine into <strong>three explicit objects wired by ID</strong>. Neither is better — Azure makes you see the plumbing AWS hides.</p>
+
+    <figure class="fig">
+    <svg viewBox="0 0 1000 330" role="img" aria-label="One AWS instance resource versus Azure's three wired resources">
+      <g class="zone aws-z">
+        <rect x="24" y="20" width="450" height="286"></rect>
+        <text x="44" y="44" class="t-tag">AWS · ONE RESOURCE, NETWORKING IMPLIED</text>
+      </g>
+      <g class="box aws-b">
+        <rect x="52" y="62" width="394" height="196"></rect>
+        <text x="72" y="90" class="t-main">ec2.Instance · k8s-cp-1</text>
+        <text x="72" y="116" class="t-sub">ami: latest Ubuntu 24.04 (LookupAmi query)</text>
+        <text x="72" y="134" class="t-sub">privateIp: 10.0.1.10 (pinned)</text>
+        <text x="72" y="152" class="t-sub">publicIp: auto-assigned — implied, ephemeral</text>
+        <text x="72" y="170" class="t-sub">NIC: implied — no object exists</text>
+        <text x="72" y="188" class="t-sub">iamInstanceProfile · keyName (KeyPair resource)</text>
+        <text x="72" y="206" class="t-sub">rootBlockDevice: 20 GB gp3</text>
+        <text x="72" y="224" class="t-sub">metadataOptions: IMDSv2 + hop limit 3 (§5)</text>
+      </g>
+      <text x="249" y="288" text-anchor="middle" class="t-sub">stop/start ⇒ NEW public IP ⇒ dead kubeconfig</text>
+
+      <g class="zone az-z">
+        <rect x="526" y="20" width="450" height="286"></rect>
+        <text x="546" y="44" class="t-tag">AZURE · THREE RESOURCES, WIRED BY ID</text>
+      </g>
+      <g class="box az-b">
+        <rect x="556" y="62" width="180" height="66"></rect>
+        <text x="572" y="88" class="t-main">PublicIPAddress</text>
+        <text x="572" y="106" class="t-sub">Standard SKU · Static</text>
+      </g>
+      <g class="box az-b">
+        <rect x="556" y="160" width="180" height="82"></rect>
+        <text x="572" y="186" class="t-main">NetworkInterface</text>
+        <text x="572" y="204" class="t-sub">10.0.1.10 static</text>
+        <text x="572" y="222" class="t-sub">subnet ref · pip ref</text>
+      </g>
+      <g class="box az-b">
+        <rect x="772" y="94" width="184" height="120"></rect>
+        <text x="788" y="120" class="t-main">VirtualMachine</text>
+        <text x="788" y="140" class="t-sub">nic ref (primary)</text>
+        <text x="788" y="158" class="t-sub">identity: by resource ID</text>
+        <text x="788" y="176" class="t-sub">osDisk 30 GB StandardSSD</text>
+        <text x="788" y="194" class="t-sub">ssh key inline · no KeyPair</text>
+      </g>
+      <path class="arrow az-a" d="M646,130 L646,158"></path>
+      <path class="arrow az-a" d="M738,190 L770,170"></path>
+      <text x="756" y="286" text-anchor="middle" class="t-sub">Static allocation ⇒ IP survives deallocate — bought, not defaulted</text>
+    </svg>
+    <figcaption>Same machine, opposite philosophies. Basic-SKU public IPs were retired Sept 2025 — Standard/Static is the only sane choice left.</figcaption>
+    </figure>
+
+    <div class="cmp">
+      <div class="hd c-aws">aws</div><div class="hd c-mid">concern</div><div class="hd c-az">azure</div>
+      <div class="c-aws">t3a.medium — 2 vCPU burstable, ~$0.045/hr each</div><div class="c-mid">machine size</div><div class="c-az">D2als_v7 — no burstable SKU purchasable (three-layer quota model, ADR 009)</div>
+      <div class="c-aws"><code>LookupAmi</code> — query Canonical's account for the latest 24.04</div><div class="c-mid">os image</div><div class="c-az"><code>ImageReference</code> — publisher/offer/sku/<code>latest</code>, no lookup</div>
+      <div class="c-aws"><code>ec2.KeyPair</code> resource + AMI's <code>ubuntu</code> convention</div><div class="c-mid">ssh login</div><div class="c-az">inline public key; <code>AdminUsername: ubuntu</code> chosen so the contract's <code>sshUser</code> carries unchanged</div>
+    </div>
+  </section>
+
+  <!-- ================= 2 ADDRESSING ================= -->
+  <section id="s2">
+    <h2><span class="num">2</span>Node addressing — what the certs and peers depend on</h2>
+    <p class="kicker">FOR KUBERNETES: apiserver cert SANs · etcd peer list · every kubeconfig</p>
+    <p>The <strong>private</strong> IPs are the load-bearing ones. 10.0.1.10/11/12 appear in the apiserver certificate, the etcd peer configuration, and every kubeconfig — which is why both providers pin them statically and the address plan has never changed across three clouds. The <strong>public</strong> IPs exist only for the admin path (SSH, kubectl from the laptop, the Cloudflare A record); the cluster itself never dials them.</p>
+    <div class="cmp">
+      <div class="hd c-aws">aws</div><div class="hd c-mid">concern</div><div class="hd c-az">azure</div>
+      <div class="c-aws"><code>PrivateIp</code> pinned on the instance</div><div class="c-mid">private ip (load-bearing)</div><div class="c-az"><code>PrivateIPAllocationMethod: Static</code> on the NIC</div>
+      <div class="c-aws">auto-assigned at launch; a stop/start mints a NEW one — the kubeconfig dies, <code>make kubeconfig</code> re-fetches</div><div class="c-mid">public ip (admin-only)</div><div class="c-az">its own resource, Standard + Static: survives deallocate; Dynamic would rotate it</div>
+    </div>
+  </section>
+
+  <!-- ================= 3 FABRIC ================= -->
+  <section id="s3">
+    <h2><span class="num">3</span>The network fabric — etcd peers, kubelet API, the CNI overlay</h2>
+    <p class="kicker">FOR KUBERNETES: etcd 2379/2380 · kubelet 10250 · apiserver↔kubelet · Cilium VXLAN</p>
+    <p>Everything cluster-internal rides this layer. The asymmetry that bites: on AWS, node-to-node traffic must be <em>explicitly allowed</em> (a self-referencing rule) and internet egress needs three plumbing resources; on Azure both come free. Forget the self-rule on AWS and <code>kubeadm join</code> just hangs.</p>
+
+    <figure class="fig">
+    <svg viewBox="0 0 1000 350" role="img" aria-label="AWS VPC with explicit gateway, routes and self-rule versus Azure VNet with built-in defaults">
+      <g class="zone aws-z">
+        <rect x="24" y="20" width="450" height="300"></rect>
+        <text x="44" y="44" class="t-tag">AWS · VPC 10.0.0.0/16 — EXPLICIT EVERYTHING</text>
+      </g>
+      <g class="box aws-b">
+        <rect x="52" y="60" width="270" height="120"></rect>
+        <text x="68" y="84" class="t-main">Subnet 10.0.1.0/24</text>
+        <text x="68" y="106" class="t-sub">● .10 cp-1   ● .11 w-1   ● .12 w-2</text>
+        <text x="68" y="130" class="t-sub">node↔node: SG rule Self:true</text>
+        <text x="68" y="148" class="t-sub">— EXPLICIT, forget it and</text>
+        <text x="68" y="164" class="t-sub">kubeadm join hangs</text>
+      </g>
+      <path class="arrow aws-a" d="M120,60 C120,40 150,40 170,52 C150,64 120,80 120,60 Z" style="marker-end:none"></path>
+      <g class="box aws-b">
+        <rect x="52" y="212" width="130" height="52"></rect>
+        <text x="68" y="234" class="t-main">IGW</text>
+        <text x="68" y="252" class="t-sub">internet gateway</text>
+      </g>
+      <g class="box aws-b">
+        <rect x="200" y="212" width="180" height="52"></rect>
+        <text x="216" y="234" class="t-main">RouteTable + assoc</text>
+        <text x="216" y="252" class="t-sub">0.0.0.0/0 → igw</text>
+      </g>
+      <path class="arrow aws-a" d="M187,180 L140,210"></path>
+      <path class="arrow aws-a" d="M240,180 L280,210"></path>
+      <text x="249" y="298" text-anchor="middle" class="t-sub">three resources to say "packets may leave"</text>
+
+      <g class="zone az-z">
+        <rect x="526" y="20" width="450" height="300"></rect>
+        <text x="546" y="44" class="t-tag">AZURE · VNET 10.0.0.0/16 — DEFAULTS DO THE WORK</text>
+      </g>
+      <g class="box az-b">
+        <rect x="556" y="60" width="270" height="120"></rect>
+        <text x="572" y="84" class="t-main">Subnet 10.0.1.0/24</text>
+        <text x="572" y="106" class="t-sub">● .10 cp-1   ● .11 w-1   ● .12 w-2</text>
+        <text x="572" y="130" class="t-sub">node↔node: AllowVnetInBound</text>
+        <text x="572" y="148" class="t-sub">(built-in, priority 65000) —</text>
+        <text x="572" y="164" class="t-sub">NOTHING declared</text>
+      </g>
+      <path class="arrow dashed az-a" d="M691,180 L691,250"></path>
+      <text x="705" y="222" class="t-sub">default outbound —</text>
+      <text x="705" y="238" class="t-sub">implicit routing, no IGW</text>
+      <g class="box az-b">
+        <rect x="616" y="252" width="150" height="42"></rect>
+        <text x="691" y="278" text-anchor="middle" class="t-main">internet</text>
+      </g>
+      <text x="751" y="316" text-anchor="middle" class="t-sub">same requirement, opposite defaults</text>
+    </svg>
+    <figcaption>The contract absorbs this asymmetry: cluster/ never knows which cloud allowed the packets.</figcaption>
+    </figure>
+
+    <div class="cmp">
+      <div class="hd c-aws">aws</div><div class="hd c-mid">concern</div><div class="hd c-az">azure</div>
+      <div class="c-aws"><code>ec2.Subnet</code>, <code>MapPublicIpOnLaunch</code></div><div class="c-mid">node subnet</div><div class="c-az">separate <code>network.Subnet</code> resource — inline-on-VNet + separate declarations fight over the same child and churn every <code>up</code></div>
+      <div class="c-aws">explicit egress allow-all rule</div><div class="c-mid">egress policy</div><div class="c-az">default outbound allow</div>
+    </div>
+  </section>
+
+  <!-- ================= 4 EDGE ================= -->
+  <section id="s4">
+    <h2><span class="num">4</span>The edge — who may reach the cluster at all</h2>
+    <p class="kicker">FOR KUBERNETES: the apiserver's front door + the Gateway API data path</p>
+    <p>Identical four ports on both clouds, all scoped to <code>$myIp/32</code> — which is why <code>check-ip</code> exists: when the laptop's IP drifts, every rebuild locks itself out at "wait for SSH".</p>
+    <div class="tbl"><table>
+      <thead><tr><th>port</th><th>which part of kubernetes</th><th>aws</th><th>azure</th></tr></thead>
+      <tbody>
+        <tr><td>22</td><td>none — <code>bootstrap.sh</code> and the runbooks (the human path)</td><td rowspan="4">SecurityGroup on the <em>instances</em>; rules are an unordered set, direction/protocol inferred</td><td rowspan="4">NSG on the <em>subnet</em>; every rule spells out direction, access, protocol + a priority 100–4096 (ours: 100/110/120/130)</td></tr>
+        <tr><td>6443</td><td>kube-apiserver — kubectl, kubeadm join, every controller</td></tr>
+        <tr><td>30080</td><td rowspan="2">Gateway API data path: Cilium's Envoy on <code>hostNetwork</code> (ADR 005) — "ingress" is a firewall rule to node ports, <em>not</em> a cloud load balancer</td></tr>
+        <tr><td>30443</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- ================= 5 IDENTITY ================= -->
+  <section id="s5">
+    <h2><span class="num">5</span>Node identity — pods calling cloud APIs with no secrets in the cluster</h2>
+    <p class="kicker">FOR KUBERNETES: CSI drivers + CNPG's barman — cloud API calls with zero credential Secrets</p>
+    <p>Both clouds deliver the machine's identity to pods through the metadata service (IMDS at 169.254.169.254). The consumers inside the cluster are the storage driver and barman inside the Postgres pods (<code>inheritFromIAMRole</code> / <code>inheritFromAzureAD</code>). AWS made us earn it:</p>
+
+    <figure class="fig">
+    <svg viewBox="0 0 1000 240" role="img" aria-label="The IMDS hop-limit path from pod to metadata service">
+      <text x="30" y="34" class="t-tag">THE HOP-LIMIT-3 LESSON (AWS, PHASE 4) — EACH FORWARDING STEP BURNS ONE HOP OF THE RESPONSE TTL</text>
+      <g class="box">
+        <rect x="30" y="60" width="150" height="66"></rect>
+        <text x="46" y="86" class="t-main">pod</text>
+        <text x="46" y="106" class="t-sub">barman / CSI</text>
+      </g>
+      <g class="box">
+        <rect x="250" y="60" width="160" height="66"></rect>
+        <text x="266" y="86" class="t-main">pod veth</text>
+        <text x="266" y="106" class="t-sub">Cilium overlay</text>
+      </g>
+      <g class="box">
+        <rect x="480" y="60" width="160" height="66"></rect>
+        <text x="496" y="86" class="t-main">node stack</text>
+        <text x="496" y="106" class="t-sub">host network ns</text>
+      </g>
+      <g class="box aws-b">
+        <rect x="710" y="60" width="260" height="66"></rect>
+        <text x="726" y="86" class="t-main">IMDS 169.254.169.254</text>
+        <text x="726" y="106" class="t-sub">IMDSv2 required · hop limit 3</text>
+      </g>
+      <path class="arrow" d="M180,93 L248,93"></path>
+      <path class="arrow" d="M410,93 L478,93"></path>
+      <path class="arrow" d="M640,93 L708,93"></path>
+      <text x="214" y="82" text-anchor="middle" class="t-sub">hop 1</text>
+      <text x="444" y="82" text-anchor="middle" class="t-sub">hop 2</text>
+      <text x="674" y="82" text-anchor="middle" class="t-sub">hop 3</text>
+      <text x="30" y="170" class="t-sub">hop limit 2 = response dies one step short: Hubble showed "TTL exceeded DROPPED" until MetadataOptions said 3.</text>
+      <text x="30" y="192" class="t-sub">Azure's IMDS: worked from pods unmodified. Zero configuration, zero drama — the whole row on that side is one line.</text>
+      <text x="30" y="222" class="t-tag">SHARED TRADE-OFF (ADR 007): NODE-SCOPED IDENTITY — ANY POD ON THE NODE CAN REACH THE BACKUP STORE. IRSA / WORKLOAD IDENTITY NEED AN OIDC ISSUER KUBEADM DOESN'T PUBLISH.</text>
+    </svg>
+    <figcaption>Identity delivery: same mechanism, different tax brackets.</figcaption>
+    </figure>
+
+    <div class="cmp">
+      <div class="hd c-aws">aws</div><div class="hd c-mid">concern</div><div class="hd c-az">azure</div>
+      <div class="c-aws"><code>iam.Role</code> + <code>iam.InstanceProfile</code> — two resources; the profile is EC2's adapter for roles</div><div class="c-mid">identity object</div><div class="c-az">user-assigned managed identity <code>id-trk-k8s-node</code> — created by <strong>foundation.sh</strong>, not the ephemeral stack</div>
+      <div class="c-aws"><code>RolePolicyAttachment</code> of the policy the persistent stack exports (StackReference)</div><div class="c-mid">backup-store grant</div><div class="c-az">Storage Blob Data Contributor scoped to the <code>pg-backups</code> container — granted by foundation.sh</div>
+      <div class="c-aws">EBS CSI driver · CNPG barman</div><div class="c-mid">consumers</div><div class="c-az">Azure Disk CSI addon · CNPG barman</div>
+    </div>
+    <p>The placement asymmetry is a scar, not a style choice: Azure's identity lives in the <em>persistent</em> group because a <code>CanNotDelete</code> lock blocks deleting role assignments scoped inside it — an ephemeral stack owning the grant could never be destroyed (409 ScopeLocked, ADR 009 addendum 2). Rule extracted: <strong>identity that grants access to durable data lives with the data.</strong></p>
+  </section>
+
+  <!-- ================= 6 DURABLE HALF ================= -->
+  <section id="s6">
+    <h2><span class="num">6</span>The durable half — what <code>make destroy</code> must not touch</h2>
+    <p class="kicker">FOR KUBERNETES: CNPG's barmanObjectStore — WAL archiving + base backups, the data that outlives the cluster</p>
+    <p>Drill 3 proved etcd snapshots don't cover PV data; phase 7.1 proved a <code>destroy</code> takes the database with it. Both clouds solve it with a lifecycle boundary — but they <em>enforce</em> it differently, and that difference is the deepest one on this page.</p>
+
+    <figure class="fig">
+    <svg viewBox="0 0 1000 400" role="img" aria-label="AWS two-stack convention versus Azure locked resource group">
+      <g class="zone aws-z">
+        <rect x="24" y="20" width="450" height="350"></rect>
+        <text x="44" y="44" class="t-tag">AWS · BOUNDARY BY CONVENTION</text>
+      </g>
+      <g class="box aws-b">
+        <rect x="52" y="62" width="380" height="92"></rect>
+        <text x="68" y="88" class="t-main">stack trk-k8s-aws/dev — ephemeral</text>
+        <text x="68" y="108" class="t-sub">vpc, sg, iam role, instances… ✂ make destroy</text>
+        <text x="68" y="128" class="t-sub">attaches the policy; owns NOTHING durable</text>
+      </g>
+      <g class="box aws-b">
+        <rect x="52" y="212" width="380" height="118"></rect>
+        <text x="68" y="238" class="t-main">stack trk-k8s-aws-persistent/prod</text>
+        <text x="68" y="258" class="t-sub">s3://trk-k8s-pg-backups — versioned, lifecycle rules</text>
+        <text x="68" y="276" class="t-sub">customer-managed access policy (exported)</text>
+        <text x="68" y="300" class="t-sub">destroy just never targets it. `make persist-destroy`</text>
+        <text x="68" y="316" class="t-sub">demands typing DELETE-BACKUPS</text>
+      </g>
+      <path class="arrow dashed aws-a" d="M242,210 L242,156"></path>
+      <text x="256" y="188" class="t-sub">StackReference: policy ARN</text>
+
+      <g class="zone az-z">
+        <rect x="526" y="20" width="450" height="350"></rect>
+        <text x="546" y="44" class="t-tag">AZURE · BOUNDARY BY PLATFORM</text>
+      </g>
+      <g class="box az-b">
+        <rect x="556" y="62" width="380" height="92"></rect>
+        <text x="572" y="88" class="t-main">rg-trk-k8s-dev — ephemeral</text>
+        <text x="572" y="108" class="t-sub">nsg, vnet, pips, nics, vms… ✂ make destroy</text>
+        <text x="572" y="128" class="t-sub">attaches the identity BY ID from stack config</text>
+      </g>
+      <g class="box az-b">
+        <rect x="556" y="212" width="380" height="118"></rect>
+        <text x="572" y="238" class="t-main">rg-trk-k8s-persistent 🔒 CanNotDelete</text>
+        <text x="572" y="258" class="t-sub">storage acct (pulumi-state + pg-backups containers)</text>
+        <text x="572" y="276" class="t-sub">key vault · sp · node identity + blob grant</text>
+        <text x="572" y="300" class="t-sub">the platform REFUSES deletion — even a mistaken one.</text>
+        <text x="572" y="316" class="t-sub">names hashed from subscription id ⇒ config survives (ADR 011)</text>
+      </g>
+      <path class="arrow dashed az-a" d="M746,210 L746,156"></path>
+      <text x="760" y="188" class="t-sub">config string: nodeIdentityId</text>
+    </svg>
+    <figcaption>Proof the boundary works: the AWS bucket survived an account SUSPENSION with 9 backups intact (ADR 010).</figcaption>
+    </figure>
+  </section>
+
+  <!-- ================= 7 IAC STATE ================= -->
+  <section id="s7">
+    <h2><span class="num">7</span>IaC state and secrets — the layer under everything</h2>
+    <p class="kicker">FOR KUBERNETES: nothing — but it decides what a teardown costs</p>
+    <div class="cmp">
+      <div class="hd c-aws">aws</div><div class="hd c-mid">concern</div><div class="hd c-az">azure</div>
+      <div class="c-aws">S3 <code>tkahng-pulumi-state</code></div><div class="c-mid">pulumi backend</div><div class="c-az"><code>azblob://pulumi-state</code> in the persistent storage account</div>
+      <div class="c-aws">passphrase file on the laptop</div><div class="c-mid">secrets provider</div><div class="c-az">Key Vault key <code>pulumi-secrets</code> — nothing unrecoverable on the laptop</div>
+      <div class="c-aws">your SSO user (profile <code>personal-admin</code>)</div><div class="c-mid">automation identity</div><div class="c-az">service principal <code>sp-trk-k8s-pulumi</code>, loaded by <code>pulumi.sh</code> per call</div>
+    </div>
+    <p>The Azure exit had to delete this layer to reach $0 — so every Azure return pays the <code>foundation.sh</code> + <code>stack init</code> toll (and <code>stack init</code> needs <code>--secrets-provider</code> as a flag; the config-file line isn't read at init time). AWS parks at pennies with state intact: the return is a resume.</p>
+  </section>
+
+  <!-- ================= 8 ABSENCES ================= -->
+  <section id="s8">
+    <h2><span class="num">8</span>What we deliberately do NOT create</h2>
+    <p class="kicker">EVERY ABSENCE IS A DECISION — AND SOMETHING IN cluster/ FILLS THE GAP</p>
+    <div class="tbl"><table>
+      <thead><tr><th>absent</th><th>why</th><th>what fills the gap</th></tr></thead>
+      <tbody>
+        <tr><td>EKS / AKS</td><td>the entire point of the project</td><td>kubeadm</td></tr>
+        <tr><td>cloud load balancer</td><td>no cloud-controller-manager in core (ADR 003) — <code>type: LoadBalancer</code> stays <code>&lt;pending&gt;</code> forever</td><td>Gateway API on hostNetwork :30080/:30443 + Cloudflare A record</td></tr>
+        <tr><td>NAT gateway</td><td>nodes sit in a public subnet with public IPs; egress is direct</td><td>SG/NSG admit only the admin IP inbound</td></tr>
+        <tr><td>cloud DNS zone</td><td>the domain lives at Cloudflare</td><td>cert-manager DNS-01 via Cloudflare token; manual A-record repoint per rebuild</td></tr>
+        <tr><td>bastion / VPN</td><td>learning cluster, single admin</td><td>SSH from <code>$myIp/32</code> only</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <div class="thesis">
+    <p><strong>The shape of the difference:</strong> AWS <em>infers</em> — one instance resource implies its NIC and public IP, rules imply direction and ordering, but internet egress needs explicit gateway-and-route plumbing. Azure <em>declares</em> — NIC, public IP, rule priorities, and identity are first-class objects you wire together, but routing, egress, and intra-VNet traffic come free. Kubernetes never notices either way, because the only surface it touches is the <span class="pill p-k8s">nodes contract</span> — the same five fields, three swaps in a row.</p>
+  </div>
+</div>
