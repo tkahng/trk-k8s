@@ -3,11 +3,11 @@
 Goal: build a real multi-node Kubernetes cluster from scratch — machines
 provisioned with the **Pulumi Go SDK**, cluster bootstrapped with **kubeadm** —
 and document everything learned along the way. The cluster core is
-**provider-agnostic**: currently AWS (restored after a brief suspension),
-with Azure (ADR 009/010) and Hetzner programs kept as reference, and
-deliberately deployable on-prem. The claim has now been tested in BOTH
-directions — aws→azure and azure→aws — and `cluster/` was untouched both
-times.
+**provider-agnostic**: currently Azure (third swap, 2026-08-17, burning
+credits that expire Sept 4 — ADR 011), with AWS (ADR 010) and Hetzner
+programs kept as reference, and deliberately deployable on-prem. The claim
+has now been exercised THREE times — aws→azure, azure→aws, aws→azure —
+and `cluster/` was untouched every time.
 
 A named end-goal beyond the cluster itself: **running PostgreSQL properly in
 Kubernetes** (StatefulSets → PgBouncer → Patroni/ZooKeeper HA → operators),
@@ -17,8 +17,8 @@ culminating in a real prebuilt Postgres-backed stack like Saleor or Supabase
 ## Architecture: two layers, one seam
 
 ```
-infra/aws/       ── provider-specific ──┐   (current)
-infra/azure/     ── provider-specific ──┤   (retired: ADR 010)
+infra/azure/     ── provider-specific ──┐   (current: ADR 011)
+infra/aws/       ── provider-specific ──┤   (parked: ADR 010, buckets kept)
 infra/hetzner/   ── provider-specific ──┤──▶  "nodes" inventory contract
 (on-prem: hand-written inventory) ──────┘         │
                                                   ▼
@@ -36,24 +36,25 @@ the core cluster must work without them, or it isn't portable.
 | Decision | Choice | Record |
 |---|---|---|
 | Topology | 1 control plane + 2 workers | — |
-| Provider (current) | **AWS us-east-1** again — t3a.medium ×3, ~$0.135/hr; account restored, suspension preserved every resource | ADR 010 |
-| Provider (retired) | Azure — used 2026-08-05→06 during the AWS suspension; subscription emptied to $0, `infra/azure/` kept as reference (state deleted, code only) | ADR 009, 010 |
+| Provider (current) | **Azure eastus** — D2als_v7 ×3, ~$0.256/hr, burning credits until Sept 4; foundation rebuilt from zero, deterministic names made the committed config valid again | ADR 011 |
+| Provider (parked) | AWS us-east-1 — destroyed 2026-08-17; both S3 buckets (state + backups) kept, pennies idle; return is a resume | ADR 010 |
 | Provider (parked) | Hetzner CX23 — no VM capacity July 2026; program kept in `infra/hetzner/` | ADR 001, 002 |
-| Portability | Provider-agnostic cluster layer + node inventory contract — **PROVEN 2026-08-05**: `cluster/` unchanged, `bootstrap.sh` worked first try on Azure | ADR 002, 009 |
+| Portability | Provider-agnostic cluster layer + node inventory contract — exercised on all THREE swaps; `cluster/` never changed | ADR 002, 009, 010, 011 |
 | CNI | Cilium | — |
 | Bootstrap | Manual kubeadm via SSH first; automate in Phase 6 | — |
 | IaC | Pulumi Go SDK | — |
-| Pulumi state | S3 `tkahng-pulumi-state` again (self-managed backend, passphrase secrets — survived the suspension) | ADR 002, 010 |
+| Pulumi state | azblob `pulumi-state` container in `rg-trk-k8s-persistent` (Key Vault secrets provider); AWS S3 backend parked with its stacks intact | ADR 002, 010, 011 |
 
-Cost: back to ~$0.135/hr on AWS (t3a.medium ×3). Idle cost is pennies of S3
-(state + backups). The Azure detour peaked at ~$0.256/hr because no
-burstable SKU was reachable there (see the 2026-08-06 journal).
+Cost: ~$0.256/hr on Azure (D2als_v7 ×3 — no burstable SKU reachable, see
+the 2026-08-06 journal), covered by credits until **Sept 4**; the
+subscription has NO spending limit, so teardown before expiry is a real
+deadline, not a habit. AWS idle cost while parked: pennies of S3.
 
 ## Phases
 
 ### Phase 0 — Prerequisites ✅ (mostly done)
 - [x] Tooling: pulumi, Go, kubectl, hcloud CLI
-- [x] Dedicated SSH keypairs, one per provider: `~/.ssh/aws_k8s` (current),
+- [x] Dedicated SSH keypairs, one per provider: `~/.ssh/aws_k8s`,
       `~/.ssh/azure_k8s`, `~/.ssh/hetzner_k8s`
 - [x] Azure account hardening + foundation, SCRIPTED this time
       (`infra/azure/foundation.sh`): locked persistent resource group, versioned

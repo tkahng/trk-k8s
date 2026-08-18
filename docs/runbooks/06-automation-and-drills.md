@@ -38,9 +38,13 @@ Secrets are file-driven, never in git:
 
 ## Resuming a session after `make destroy`
 
-The between-sessions habit is teardown, so "pick up where I left off" is:
+The between-sessions habit is teardown, so "pick up where I left off" is
+the durable half first (once per provider era, idempotent), then the
+three-step bring-up:
 
-    make persist-up # ONCE, ever: backup bucket + IAM policy (ADR 008)
+    # durable half, if it doesn't exist yet — provider-specific:
+    #   AWS:   make persist-up   (backup bucket + IAM policy, ADR 008)
+    #   Azure: make foundation   (locked RG: state, vault, SP, identity)
     make up         # machines exist (check-ip preflight runs automatically)
     make bootstrap  # machines become a cluster
     make platform   # cluster becomes useful; ArgoCD pulls the apps back
@@ -74,6 +78,43 @@ Let's Encrypt note: a fresh cluster re-issues certs (the old secret died
 with the cluster). Prod rate limit is 50/week per domain — a few rebuilds
 are fine; heavy drill days should switch the annotation to
 `letsencrypt-staging`.
+
+## Switching cloud providers (done three times: ADR 009, 010, 011)
+
+The seam holds: `cluster/` has never changed during a swap. Everything
+that DOES change is this checklist, in order:
+
+1. **Repo rewire** — three files, all recoverable from git history
+   (`git log --oneline -- Makefile` finds the swap commits):
+   - `Makefile`: restore the target provider's header (INFRA_DIR,
+     SSH_KEY, PULUMI wrapper, login/foundation-or-persist targets)
+   - `cluster/platform.sh` provider: the Makefile's `platform:` target
+     passes `--provider=aws|azure`
+   - `apps/postgres-cnpg/base/cluster.yaml`: swap `barmanObjectStore`
+     (S3 + `inheritFromIAMRole` ⇄ blob URL + `inheritFromAzureAD`)
+2. **Durable half** — AWS: `make persist-up`; Azure: `make foundation`.
+   Both idempotent.
+3. **Pulumi state** — two cases:
+   - state survived (AWS park keeps its S3 backend): nothing to do;
+     `make preview` should show a clean N-to-create
+   - state was deleted (every Azure exit deletes it — $0 requires it):
+     remove the stale `encryptedkey:` from `Pulumi.dev.yaml` (the purged
+     vault key can never unwrap it) and run
+     `cd infra/azure && ./pulumi.sh stack init dev`. Everything else in
+     the committed config stays valid because foundation.sh derives
+     names from a hash of the subscription id — same subscription, same
+     names, same resource IDs (ADR 011)
+4. **Bring-up** — `make up && make bootstrap && make platform`, exactly
+   the resume flow above
+5. **DNS** — Cloudflare A record to the new control-plane IP (proxy off)
+6. **Data** — `apps/netbox/populate.sh` re-records the NEW provider's
+   reality (discovery-driven by design); CNPG starts a fresh WAL history
+   against the new object store
+7. **The provider you left** — park it (AWS: keep the buckets, pennies)
+   or zero it (Azure: the full ADR 010 teardown — lock off, RG delete,
+   vault PURGE, SP + orphaned role assignments, local env files).
+   Which one depends on what idle costs there: S3 parks at pennies;
+   an Azure storage account + vault bills forever.
 
 ## Drills
 
