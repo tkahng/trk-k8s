@@ -32,6 +32,27 @@ net.ipv4.ip_forward                 = 1
 EOF
 sysctl --system > /dev/null
 
+echo "=== [$NODE_NAME] A3.5: apt mirror reachability"
+# Cloud images pin apt to a cloud-local mirror (azure.archive.ubuntu.com,
+# <region>.ec2.archive.ubuntu.com) — and that mirror can be dead FROM INSIDE
+# the cloud while the global archive answers fine. Hit on Azure 2026-08-17:
+# the regional mirror timed out on port 80 from every node, failing prep on
+# a fresh cluster. If the configured mirror doesn't answer, fall back to the
+# global archive: slower, but never a single-cloud point of failure.
+# noble uses deb822 (/etc/apt/sources.list.d/ubuntu.sources); older images
+# use sources.list — handle both.
+MIRROR="$(grep -rhoE 'https?://[a-z0-9.-]*archive\.ubuntu\.com' \
+  /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null | sort -u | head -1)"
+if command -v curl >/dev/null && [ -n "$MIRROR" ] && [ "${MIRROR#*//}" != "archive.ubuntu.com" ]; then
+  if ! curl -sf -m 8 -o /dev/null "$MIRROR/ubuntu/"; then
+    echo "  mirror $MIRROR unreachable — falling back to archive.ubuntu.com"
+    sed -i "s|${MIRROR#*//}|archive.ubuntu.com|g" \
+      /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+  else
+    echo "  mirror $MIRROR ok"
+  fi
+fi
+
 echo "=== [$NODE_NAME] A4: containerd"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
