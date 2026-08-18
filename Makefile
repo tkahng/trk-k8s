@@ -1,28 +1,35 @@
 # kubeadm learning cluster — command shortcuts
-# Provider-specific bits are isolated to variables so an infra swap only
-# changes this header. Proven twice: aws→azure (ADR 009) and azure→aws
-# (ADR 010) — cluster/ was untouched both times.
+# Provider-specific bits are isolated to variables so an infra swap
+# (aws -> azure -> hetzner -> on-prem) only changes this header. Swapped
+# three times now — aws->azure (ADR 009), azure->aws (ADR 010), and back
+# to azure 2026-08-17 to burn credits before they expire Sept 4 — and
+# cluster/ was untouched every time.
 
-INFRA_DIR      := infra/aws
-# Data that must outlive the cluster (ADR 008). NEVER destroyed by `destroy`
-# or `rebuild` — that's the whole point.
-PERSIST_DIR    := infra/aws-persistent
-SSH_KEY        := ~/.ssh/aws_k8s
-# personal-admin since 2026-07-14: nodes carry an IAM instance profile, so
-# pulumi needs iam:PassRole (beyond PowerUserAccess) to touch instances.
-AWS_PROFILE    := personal-admin
-PULUMI         := PULUMI_CONFIG_PASSPHRASE_FILE=$(HOME)/.config/pulumi/trk-k8s.passphrase pulumi
+INFRA_DIR      := infra/azure
+SSH_KEY        := ~/.ssh/azure_k8s
+# Wrapper that loads the service principal + azblob state creds before every
+# call (infra/azure/pulumi.sh). Replaces AWS's passphrase-file env var: the
+# secrets provider is now Azure Key Vault, so nothing unrecoverable lives on
+# this laptop.
+PULUMI         := $(CURDIR)/infra/azure/pulumi.sh
+
+# The persistent half of ADR 008's lifecycle boundary is NOT a Pulumi stack
+# on Azure — resource groups model it natively, so foundation.sh creates
+# rg-trk-k8s-persistent (state, Key Vault, later backups) and locks it
+# CanNotDelete. `destroy` cannot touch it; that's the platform enforcing what
+# a second Pulumi stack enforced by convention on AWS.
+FOUNDATION     := infra/azure/foundation.sh
 
 # node name → public IP, straight from the inventory contract
 node_ip = $(shell cd $(INFRA_DIR) && $(PULUMI) stack output nodes | jq -r '.[] | select(.name=="$(1)").publicIp')
 
-.PHONY: help login preview up destroy nodes outputs check-ip set-myip ssh-cp ssh-worker-1 ssh-worker-2 kubeconfig bootstrap platform rebuild persist-up persist-outputs persist-destroy
+.PHONY: help login preview up destroy nodes outputs check-ip set-myip ssh-cp ssh-worker-1 ssh-worker-2 kubeconfig bootstrap platform rebuild foundation foundation-show
 
 help: ## list available targets
 	@grep -E '^[a-z0-9-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
 
-login: ## refresh AWS SSO credentials (run when sessions expire)
-	aws sso login --profile $(AWS_PROFILE)
+login: ## refresh Azure CLI credentials (run when the session expires)
+	az login
 
 preview: ## show what pulumi would change
 	cd $(INFRA_DIR) && $(PULUMI) preview
@@ -30,21 +37,14 @@ preview: ## show what pulumi would change
 up: check-ip ## create/update the cluster machines
 	cd $(INFRA_DIR) && $(PULUMI) up --yes
 
-destroy: ## tear down the CLUSTER machines (backups survive — see persist-*)
+destroy: ## tear down the CLUSTER resource group (rg-trk-k8s-persistent survives — it is locked)
 	cd $(INFRA_DIR) && $(PULUMI) destroy --yes
 
-persist-up: ## create/update the persistent data stack (backup bucket + IAM policy). Run once.
-	cd $(PERSIST_DIR) && $(PULUMI) stack select --create prod && $(PULUMI) up --yes
+foundation: ## ONE TIME: create rg-trk-k8s-persistent (pulumi state, key vault, sp). Idempotent.
+	$(FOUNDATION)
 
-persist-outputs: ## show persistent stack outputs (bucket name, policy arn)
-	@cd $(PERSIST_DIR) && $(PULUMI) stack select prod && $(PULUMI) stack output
-
-persist-destroy: ## DESTROYS YOUR POSTGRES BACKUPS. Not part of any lab cycle.
-	@echo "This deletes the backup bucket and every backup in it (ADR 008)."
-	@echo "The bucket has no ForceDestroy, so this FAILS unless you empty it first:"
-	@echo "  aws s3 rm s3://trk-k8s-pg-backups --recursive --profile $(AWS_PROFILE)"
-	@printf 'Type DELETE-BACKUPS to proceed: ' && read a && [ "$$a" = "DELETE-BACKUPS" ]
-	cd $(PERSIST_DIR) && $(PULUMI) destroy --yes
+foundation-show: ## print the foundation config this repo is wired to
+	@cat $(HOME)/.config/trk-k8s/azure-foundation.env | grep -v '^#'
 
 nodes: ## print the node inventory (the provider-agnostic contract)
 	@cd $(INFRA_DIR) && $(PULUMI) stack output nodes | jq .
@@ -72,7 +72,7 @@ bootstrap: ## kubeadm + cilium on the provisioned machines (runbooks 02+03, scri
 	cluster/bootstrap.sh /tmp/trk-inventory.json $(SSH_KEY)
 
 platform: ## storage/ingress/tls/gitops addons (runbooks 04+05, scripted)
-	cluster/platform.sh --provider=aws
+	cluster/platform.sh --provider=azure
 
 rebuild: ## the full drill: destroy -> up -> bootstrap -> platform
 	$(MAKE) destroy

@@ -73,16 +73,21 @@ spec:
   backup:
     retentionPolicy: 7d
     barmanObjectStore:
-      # Back on S3 (ADR 010): the bucket in infra/aws-persistent SURVIVED
-      # the account suspension — suspended accounts keep their resources.
-      # It still holds the pre-suspension base backups, proof the ADR 008
-      # boundary held across the harshest lifecycle event yet.
-      destinationPath: s3://trk-k8s-pg-backups/
-      s3Credentials:
-        # Node IAM role over IMDS, no credential Secret (the hop-limit-3
-        # path from Phase 4). TRADE-OFF (ADR 007): node-scoped — any pod on
-        # the node can reach the bucket; IRSA needs an OIDC provider.
-        inheritFromIAMRole: true
+      # Third destination swap (aws -> azure -> aws -> azure): back on blob
+      # 2026-08-17 to burn credits before Sept 4. The container lives in
+      # rg-trk-k8s-persistent behind a CanNotDelete lock, so backups survive
+      # `make destroy` by platform enforcement (ADR 008/009). Names are
+      # deterministic (hash of the subscription id), which is why this URL
+      # is identical to the pre-teardown one even though foundation.sh
+      # rebuilt everything from zero.
+      destinationPath: https://sttrkk8sf92a7ab3.blob.core.windows.net/pg-backups
+      azureCredentials:
+        # No credential Secret anywhere. The node's user-assigned managed
+        # identity (id-trk-k8s-node) holds Storage Blob Data Contributor on
+        # this container, and barman reaches it over IMDS — the Azure
+        # counterpart to AWS's inheritFromIAMRole. TRADE-OFF unchanged from
+        # ADR 007: node-scoped, so any pod on the node could reach it.
+        inheritFromAzureAD: true
       wal:
         compression: gzip
       data:
