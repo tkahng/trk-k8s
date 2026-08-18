@@ -100,9 +100,13 @@ that DOES change is this checklist, in order:
    - state was deleted (every Azure exit deletes it — $0 requires it):
      remove the stale `encryptedkey:` from `Pulumi.dev.yaml` (the purged
      vault key can never unwrap it) and run
-     `cd infra/azure && ./pulumi.sh stack init dev`. Everything else in
-     the committed config stays valid because foundation.sh derives
-     names from a hash of the subscription id — same subscription, same
+     `cd infra/azure && ./pulumi.sh stack init dev
+     --secrets-provider="azurekeyvault://kv-trk-k8s-<suffix>.vault.azure.net/keys/pulumi-secrets"`
+     — the flag is REQUIRED: `stack init` does not read the
+     `secretsprovider:` line from the config file, and without the flag
+     it falls back to demanding a passphrase. Everything else in the
+     committed config stays valid because foundation.sh derives names
+     from a hash of the subscription id — same subscription, same
      names, same resource IDs (ADR 011)
 4. **Bring-up** — `make up && make bootstrap && make platform`, exactly
    the resume flow above
