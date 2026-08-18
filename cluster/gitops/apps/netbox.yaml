@@ -97,7 +97,7 @@ spec:
         # surfaced as a fake database timeout. Set dbWaitDebug: true to get
         # the actual traceback instead of chasing the database.
         # 3 for drill 2 (migrations with many pods sharing one schema); was 1.
-        replicaCount: 3
+        replicaCount: 1   # stepping-stone: back to 3 after the node recovers cordoned
         # 2Gi, raised from 1Gi: on the Azure bring-up (2026-08-18) the web
         # pod OOM-killed 26 times in a row ~48s after each start — four
         # gunicorn workers warming caches simultaneously spike past 1Gi
