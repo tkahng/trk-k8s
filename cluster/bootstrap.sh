@@ -131,9 +131,22 @@ else
   # k8sServiceHost: with kubeProxyReplacement there is no kube-proxy to
   # provide the in-cluster API server VIP, so Cilium must be told the real
   # endpoint. Comes from the inventory — provider-specific, not values.yaml.
-  helm install cilium cilium/cilium --version 1.19.4 \
-    --namespace kube-system -f "$REPO_ROOT/cluster/addons/cilium/values.yaml" \
-    --set k8sServiceHost="$cp_private" --set k8sServicePort=6443 > /dev/null
+  #
+  # Retried, same as platform.sh's helm_i: a fresh control plane can drop
+  # one large write (cilium's release secret is ~1MB) even after the step
+  # 4.5 stability gate — seen twice now, once per cloud. Uninstall between
+  # attempts so a half-created release can't wedge the retry.
+  for attempt in 1 2 3; do
+    if helm install cilium cilium/cilium --version 1.19.4 \
+      --namespace kube-system -f "$REPO_ROOT/cluster/addons/cilium/values.yaml" \
+      --set k8sServiceHost="$cp_private" --set k8sServicePort=6443 > /dev/null; then
+      break
+    fi
+    [ "$attempt" = 3 ] && { echo "  cilium install failed after 3 attempts" >&2; exit 1; }
+    echo "  cilium install attempt $attempt failed — cleaning up and retrying in 20s"
+    helm uninstall cilium -n kube-system > /dev/null 2>&1 || true
+    sleep 20
+  done
 fi
 
 echo "### Step 6: wait for all nodes Ready"
