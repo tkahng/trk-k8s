@@ -259,14 +259,22 @@ func main() {
 					},
 				},
 				StorageProfile: &compute.StorageProfileArgs{
-					// StandardSSD, not Premium: a Premium P6 is $10.21/mo
-					// each and three of them would be 15% of the trial
-					// credits doing nothing.
+					// Premium (P6), reversing the trial-era StandardSSD
+					// choice. StandardSSD has NO latency SLA, and etcd
+					// fsyncs every write: on the 2026-08-17 bring-up the
+					// apiserver dropped two ~1MB helm writes and etcd
+					// logged 70 slow-apply warnings in 30 minutes. Premium
+					// buys single-digit-ms latency + 3500 burst IOPS for
+					// ~$10/mo per disk — and DeleteOption: Delete means it
+					// only bills while the cluster exists, which (ADR 011
+					// era: up-when-needed, credits until Sept 4) is hours,
+					// not months. Workers get it too: local-path PVs (the
+					// Postgres volumes) live on the OS disk.
 					OsDisk: &compute.OSDiskArgs{
 						CreateOption: pulumi.String(compute.DiskCreateOptionTypesFromImage),
-						DiskSizeGB:   pulumi.Int(30),
+						DiskSizeGB:   pulumi.Int(64),
 						ManagedDisk: &compute.ManagedDiskParametersArgs{
-							StorageAccountType: pulumi.String(compute.DiskStorageAccountTypes_StandardSSD_LRS),
+							StorageAccountType: pulumi.String(compute.DiskStorageAccountTypes_Premium_LRS),
 						},
 						DeleteOption: pulumi.String(compute.DiskDeleteOptionTypesDelete),
 					},

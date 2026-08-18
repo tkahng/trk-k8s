@@ -18,7 +18,7 @@ Everything below is scaffolding for one of those.
 | The VM | `ec2.Instance` ×3 | `compute.VirtualMachine` ×3 |
 | Machine size | `t3a.medium` (2 vCPU burstable, ~$0.045/hr) | `D2als_v7` (2 vCPU, ~$0.085/hr — no burstable SKU was purchasable; see the three-layer quota model, ADR 009) |
 | OS image | `LookupAmi` — a query for Canonical's latest Ubuntu 24.04 amd64 | `ImageReference` — publisher/offer/sku/`latest`, no lookup step |
-| OS disk | `RootBlockDevice` inline: 20 GB gp3 | `OsDisk`: 30 GB StandardSSD_LRS (Premium would eat 15% of the credits idling), `DeleteOption: Delete` so `destroy` doesn't orphan disks |
+| OS disk | `RootBlockDevice` inline: 20 GB gp3 (3000 IOPS baseline) | `OsDisk`: 64 GB Premium_LRS P6 — StandardSSD has no latency SLA and etcd fsyncs every write; the 2026-08-17 bring-up dropped two ~1MB helm writes before the upgrade (ADR 011 era). `DeleteOption: Delete` so `destroy` doesn't orphan disks |
 | SSH login | `ec2.KeyPair` resource + AMI convention (`ubuntu` user) | inline `LinuxConfiguration.Ssh` public key — no keypair object exists; `AdminUsername: ubuntu` chosen deliberately so the contract's `sshUser` stays identical |
 
 **For Kubernetes:** this is the kubelet's host. Nothing at this layer knows
