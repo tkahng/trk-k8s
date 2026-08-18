@@ -97,7 +97,25 @@ spec:
         # surfaced as a fake database timeout. Set dbWaitDebug: true to get
         # the actual traceback instead of chasing the database.
         # 3 for drill 2 (migrations with many pods sharing one schema); was 1.
-        replicaCount: 3   # drill 2: three pods, one schema — spread survives boot spikes at honest requests
+        # 2, not 3: drill 2's real capacity finding. The chart mounts a
+        # SHARED media volume on every web pod (persistence below), and on
+        # RWO local-path that pins all replicas to one node — so honest
+        # 1536Mi requests never got to spread anything, two boot spikes
+        # colocated, and worker-1 died the same death three times. Media
+        # persistence off (we store no uploads; all NetBox data that matters
+        # is in Postgres) + hard anti-affinity = exactly one web pod per
+        # 4Gi worker. Two workers, two replicas — the honest number.
+        replicaCount: 2
+        persistence:
+          enabled: false
+        affinity:
+          podAntiAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              - topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: netbox
+                    app.kubernetes.io/component: netbox
         # 2Gi, raised from 1Gi: on the Azure bring-up (2026-08-18) the web
         # pod OOM-killed 26 times in a row ~48s after each start — four
         # gunicorn workers warming caches simultaneously spike past 1Gi
