@@ -97,9 +97,16 @@ spec:
         # surfaced as a fake database timeout. Set dbWaitDebug: true to get
         # the actual traceback instead of chasing the database.
         replicaCount: 1
+        # 2Gi, raised from 1Gi: on the Azure bring-up (2026-08-18) the web
+        # pod OOM-killed 26 times in a row ~48s after each start — four
+        # gunicorn workers warming caches simultaneously spike past 1Gi
+        # before settling near 250Mi idle. Same ceiling the AWS era hit when
+        # exec'd debug shells shared the cgroup (see the 08-07 journal):
+        # kubectl exec runs INSIDE this limit, so headroom serves both boot
+        # and debugging. Nodes have 4Gi; the worker Deployment stays at 512Mi.
         resources:
           requests: {cpu: 200m, memory: 512Mi}
-          limits: {memory: 1Gi}
+          limits: {memory: 2Gi}
         worker:
           enabled: true             # the RQ worker — a separate Deployment
           replicaCount: 1
