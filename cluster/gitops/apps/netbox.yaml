@@ -105,8 +105,14 @@ spec:
         # exec'd debug shells shared the cgroup (see the 08-07 journal):
         # kubectl exec runs INSIDE this limit, so headroom serves both boot
         # and debugging. Nodes have 4Gi; the worker Deployment stays at 512Mi.
+        # requests raised 512Mi -> 1536Mi in drill 2: the request is a PROMISE
+        # TO THE SCHEDULER, and it was a lie. Boot spikes past 1.5Gi; with
+        # requests at 512Mi the scheduler packed two booting pods onto one
+        # 4Gi worker, which thrashed until its kubelet went silent and the
+        # taint manager evicted everything (worker-1, 08:57 UTC). Request
+        # what boot actually uses and the scheduler spreads honestly.
         resources:
-          requests: {cpu: 200m, memory: 512Mi}
+          requests: {cpu: 200m, memory: 1536Mi}
           limits: {memory: 2Gi}
         worker:
           enabled: true             # the RQ worker — a separate Deployment
