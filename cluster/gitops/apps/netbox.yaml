@@ -21,7 +21,7 @@ spec:
   source:
     repoURL: https://charts.netbox.oss.netboxlabs.com
     chart: netbox
-    targetRevision: 8.3.46          # app v4.6.7, checked 2026-08-01
+    targetRevision: 8.3.57          # app v4.6.8 — drill 2 phase B: upgrade under load, two pods one schema
     helm:
       valuesObject:
         # --- Postgres: the operator's cluster, not the chart's bundled one
