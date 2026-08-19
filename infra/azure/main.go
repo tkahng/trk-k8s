@@ -88,14 +88,22 @@ func main() {
 		// deployed. $0.0804/hr each -> ~$0.256/hr all in, versus AWS's
 		// ~$0.135/hr. Roughly 1.9x for identical specs, because the cheap
 		// burstable tier is simply out of reach here.
-		vmSize := "Standard_D2als_v7"
+		cpSize := "Standard_D2als_v7"
+		// Workers upsized in drill 2 (2026-08-18): two 4Gi workers could not
+		// hold the platform stack plus even two NetBox replicas at their
+		// true 2Gi boot footprint — three node-wedges in one afternoon were
+		// the same arithmetic finding three disguises (dishonest requests,
+		// an RWO media-volume pin, request-less platform pods). 8Gi workers
+		// end the class. Quota math is exact: 2 (cp) + 4 + 4 = 10 of the
+		// family's 10 vCPUs.
+		workerSize := "Standard_D4als_v7"
 
 		// Same address plan as the AWS and Hetzner layouts, so the cluster/
 		// runbooks and Cilium's k8sServiceHost are unchanged.
 		nodes := []node{
-			{name: "k8s-cp-1", role: "control-plane", privateIP: "10.0.1.10", size: vmSize},
-			{name: "k8s-worker-1", role: "worker", privateIP: "10.0.1.11", size: vmSize},
-			{name: "k8s-worker-2", role: "worker", privateIP: "10.0.1.12", size: vmSize},
+			{name: "k8s-cp-1", role: "control-plane", privateIP: "10.0.1.10", size: cpSize},
+			{name: "k8s-worker-1", role: "worker", privateIP: "10.0.1.11", size: workerSize},
+			{name: "k8s-worker-2", role: "worker", privateIP: "10.0.1.12", size: workerSize},
 		}
 
 		tags := pulumi.StringMap{

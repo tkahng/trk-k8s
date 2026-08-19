@@ -23,7 +23,12 @@ func main() {
 		myIP := cfg.Require("myIp")
 		sshPublicKey := cfg.Require("sshPublicKey")
 
-		instanceType := "t3a.medium" // 2 vCPU, 4 GB — see docs/decisions/002
+		// t3a.large (2 vCPU, 8 GB), up from t3a.medium: drill 2 on Azure
+		// proved 4 GB workers cannot hold the platform plus multi-replica
+		// NetBox at its true boot footprint (see the 2026-08-18 journal).
+		// Dormant until the next AWS era — changed here so that era does
+		// not rediscover the wedge. ~$0.075/hr each.
+		instanceType := "t3a.large"
 		az := "us-east-1a"
 
 		// Same address plan as the Hetzner layout so the cluster/ runbooks
