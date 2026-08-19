@@ -161,6 +161,19 @@ row lost of 660). Restore took 52s. Bound it tighter with
   only honest check is listing the bucket.
 - `ScheduledBackup.spec.schedule` is **6-field** cron (seconds first),
   not 5-field Unix.
+- **A rejoin stuck on "Waiting for the instances to become active" can be
+  a pg_rewind deadlock, not slowness.** If an instance died UNCLEAN as
+  primary (node loss) and a failover promoted the other, the returning
+  instance's timeline diverged at a point inside the WAL segment that was
+  OPEN at death — never archived, possibly not on disk. pg_rewind needs
+  exactly that segment; the operator retries the impossible forever and
+  the status never says so. Confirm in the instance logs
+  (`pg_rewind: error: could not restore file ...`), then stop rewinding
+  and re-clone: `kubectl -n postgres-cnpg delete pvc <instance> --wait=false
+  && kubectl -n postgres-cnpg delete pod <instance>` — the operator
+  rebuilds it from the live primary via pg_basebackup (measured: 32s for
+  5Gi on Premium disks, after 40 minutes of deadlocked rewind).
+  Same RPO lesson as restore — the open WAL segment — biting rejoin.
 - Backup credentials are node-scoped via IMDS: any pod on the node can
   reach the bucket. IRSA is the correct fix; needs an OIDC provider.
 - The bucket lives in `infra/aws-persistent` and survives
