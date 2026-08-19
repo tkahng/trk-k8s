@@ -54,6 +54,16 @@ spec:
           # breaks when the cache/queue dies, and one pod makes that
           # cleaner to observe, not harder.
           architecture: standalone
+          # PINNED password — the last chart-generated secret, and it bit
+          # exactly as the lookup trap predicts: the 8.3.57 upgrade re-render
+          # rotated it mid-rollout, Valkey restarted with the new password,
+          # and every RUNNING pod started 500ing on stale cache credentials
+          # (drill 2 phase B, 2026-08-19). platform.sh creates the secret
+          # from ~/.config/trk-k8s/netbox-valkey-password, same as every
+          # other credential here.
+          auth:
+            existingSecret: netbox-valkey-pinned
+            existingSecretPasswordKey: password
           master:
             resources:
               requests: {cpu: 50m, memory: 128Mi}
@@ -106,6 +116,16 @@ spec:
         # is in Postgres) + hard anti-affinity = exactly one web pod per
         # 4Gi worker. Two workers, two replicas — the honest number.
         replicaCount: 2   # drill 2: one per 8Gi worker, anti-affinity enforced
+        # maxSurge 0: hard anti-affinity + surge is self-deadlocking when
+        # replicas == nodes — the surge pod needs a node that cannot exist,
+        # and the rollout wedges with old pods squatting both workers
+        # (phase B, 2026-08-19). Roll DOWN first instead: brief single-pod
+        # window per step, but the rollout always completes.
+        updateStrategy:
+          type: RollingUpdate
+          rollingUpdate:
+            maxSurge: 0
+            maxUnavailable: 1
         persistence:
           enabled: false
         affinity:

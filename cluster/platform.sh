@@ -172,7 +172,7 @@ done
 # as api_token earned a 403 "Invalid v1 token": v1 plaintext tokens must be
 # exactly 40 chars.
 # Alphanumeric only (NetBox's TOKEN_CHARSET) — base64's +/= are not in it.
-for f in netbox-api-key:12 netbox-api-token:40; do
+for f in netbox-api-key:12 netbox-api-token:40 netbox-valkey-password:32; do
   name="${f%%:*}"; len="${f##*:}"
   if [ ! -f "$NB_DIR/$name" ]; then
     (umask 077 && LC_ALL=C tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c "$len" > "$NB_DIR/$name")
@@ -222,6 +222,16 @@ if ! kubectl -n netbox get secret netbox-superuser > /dev/null 2>&1; then
     --from-literal=api_key="$(cat "$NB_DIR/netbox-api-key")" \
     --from-literal=api_token="$(cat "$NB_DIR/netbox-api-token")" > /dev/null
   echo "  netbox-superuser secret created"
+fi
+
+if ! kubectl -n netbox get secret netbox-valkey-pinned > /dev/null 2>&1; then
+  # The Valkey password was the LAST chart-generated secret, and it proved
+  # the lookup trap all over again: the 8.3.57 chart upgrade re-rendered a
+  # fresh password mid-rollout, Valkey restarted with it, and every running
+  # NetBox pod 500'd on stale cache credentials. Pinned like the rest.
+  kubectl -n netbox create secret generic netbox-valkey-pinned \
+    --from-literal=password="$(cat "$NB_DIR/netbox-valkey-password")" > /dev/null
+  echo "  netbox-valkey-pinned secret created"
 fi
 
 if ! kubectl -n netbox get secret netbox-config > /dev/null 2>&1; then
