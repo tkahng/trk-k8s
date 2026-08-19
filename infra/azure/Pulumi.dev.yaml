@@ -1,6 +1,6 @@
 secretsprovider: azurekeyvault://kv-trk-k8s-f92a7ab3.vault.azure.net/keys/pulumi-secrets
 config:
-  trk-k8s-azure:myIp: 45.50.96.187/32
+  trk-k8s-azure:myIp: 165.162.31.50/32
   trk-k8s-azure:sshPublicKey: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGOB9MhkVD2cuSSycPIqiSna0oSbTfbHc9/6/tBBy7Xw tkahng-k8s-azure
   azure-native:location: eastus
   trk-k8s-azure:subscriptionId: 85f3b630-afa5-42cf-b8b3-b06abbf5a28f
