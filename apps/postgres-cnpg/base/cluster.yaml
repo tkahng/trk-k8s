@@ -81,6 +81,16 @@ spec:
       # is identical to the pre-teardown one even though foundation.sh
       # rebuilt everything from zero.
       destinationPath: https://sttrkk8sf92a7ab3.blob.core.windows.net/pg-backups
+      # serverName MUST change on every rebuild that reuses this container.
+      # CNPG refuses to archive a NEW cluster into a prefix that already
+      # holds a dead generation's WALs ("Expected empty archive") — and it
+      # fails SILENTLY from the app's perspective: ContinuousArchiving goes
+      # False while everything else stays green. Found 2026-08-25 with the
+      # fresh cluster stuck on its very first segment; the previous rebuild
+      # (08-18) almost certainly ran drills 1-3 with archiving broken the
+      # same way. Bumping this is now a resume-runbook step (runbook 06),
+      # and recovery bootstraps reference the OLD generation's name.
+      serverName: pg-20260825
       azureCredentials:
         # No credential Secret anywhere. The node's user-assigned managed
         # identity (id-trk-k8s-node) holds Storage Blob Data Contributor on
