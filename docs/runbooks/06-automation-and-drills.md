@@ -70,6 +70,13 @@ Then the post-rebuild manual steps below.
 
 1. Cloudflare: update `*.k8s.kahng.dev` A record → new control-plane
    public IP (proxy off).
+1b. **Bump CNPG's `serverName`** in `apps/postgres-cnpg/base/cluster.yaml`
+   (date-stamped, e.g. `pg-20260825`) and push. CNPG refuses to archive a
+   new cluster into a prefix holding a dead generation's WALs ("Expected
+   empty archive") and the failure is SILENT: `ContinuousArchiving` goes
+   False while every app stays green — the rebuilt cluster runs with NO
+   working backups until this is bumped. Verify after:
+   `kubectl -n postgres-cnpg get cluster pg -o jsonpath='{.status.conditions[?(@.type=="ContinuousArchiving")].status}'`
 2. `apps/hello/overlays/dev/ingress-host.yaml`: new nip.io host if used;
    commit + push (ArgoCD owns the app — git is the only way to change it).
 3. New ArgoCD admin password (initial secret) if you use the UI.
