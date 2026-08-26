@@ -1,0 +1,48 @@
+# Drill 4 — PITR with the app attached (2026-08-25).
+#
+# NOT part of the kustomize base: applied by hand during the drill, kept in
+# git as the reference recovery manifest. The scenario: a cascading delete
+# (VM k8s-worker-2 + interface + 2 IPs) at 23:51:34 UTC; recovery target is
+# four seconds earlier. Post-oops evidence (drill4_evidence table, written
+# 23:52) must NOT exist after recovery — PITR stops where told, or it isn't
+# point-in-time anything.
+#
+# The externalCluster references the ORIGIN generation's serverName
+# (pg-20260825) — the same per-generation naming this morning's "Expected
+# empty archive" blocker forced on us. And this cluster archives under its
+# OWN generation name: a restore that doesn't resume backups isn't done.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: pg-restore
+  namespace: postgres-cnpg
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie
+  storage:
+    size: 5Gi
+  bootstrap:
+    recovery:
+      source: pg-origin
+      recoveryTarget:
+        targetTime: "2026-08-25 23:51:30+00"
+  externalClusters:
+    - name: pg-origin
+      barmanObjectStore:
+        destinationPath: https://sttrkk8sf92a7ab3.blob.core.windows.net/pg-backups
+        serverName: pg-20260825
+        azureCredentials:
+          inheritFromAzureAD: true
+        wal:
+          compression: gzip
+  backup:
+    retentionPolicy: 7d
+    barmanObjectStore:
+      destinationPath: https://sttrkk8sf92a7ab3.blob.core.windows.net/pg-backups
+      serverName: pg-restore-20260825
+      azureCredentials:
+        inheritFromAzureAD: true
+      wal:
+        compression: gzip
+      data:
+        compression: gzip
