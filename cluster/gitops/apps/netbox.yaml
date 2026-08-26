@@ -31,7 +31,7 @@ spec:
           # Through the POOLER, never a pod: the 7.2 indirection that 7.3/7.4
           # proved keeps clients oblivious to failover. Drill 1 tests whether
           # a Django app agrees.
-          host: pg-pooler-rw.postgres-cnpg.svc.cluster.local
+          host: pg-restore-rw.postgres-cnpg.svc.cluster.local  # drill 4: repointed to the PITR cluster; restore back after verification
           port: 5432
           database: netbox
           username: netbox
