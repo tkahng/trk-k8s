@@ -42,6 +42,37 @@ spec:
   imageName: ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie
   storage:
     size: 5Gi
+
+  # DATA SURVIVAL (drill 5, staged 2026-08-27): this generation is BORN from
+  # the previous generation's archive instead of empty. Every prior rebuild
+  # proved the PLATFORM survives in git while the data only came back because
+  # populate.sh rediscovers it from the live cluster — which works for
+  # infrastructure records and would be worthless for anything a human typed.
+  # No recoveryTarget: recover to the END of available WAL, i.e. everything
+  # the dead cluster ever committed (base backup 20260827T194617 + WAL).
+  #
+  # bootstrap is IMMUTABLE — it only applies when the Cluster is created, so
+  # this must be in git BEFORE platform.sh runs on the rebuilt cluster, and
+  # it is silently ignored on an existing one. That ordering is exactly what
+  # the first drill-5 attempt got wrong.
+  #
+  # NOTE on roles: the operator mints fresh pg-app/pg-superuser secrets that
+  # won't match the restored database's passwords. Harmless here — NetBox
+  # authenticates as the `netbox` role, whose password comes from
+  # ~/.config/trk-k8s (file-driven secrets, surviving on the laptop) and is
+  # reconciled by managed.roles below.
+  bootstrap:
+    recovery:
+      source: pg-previous-generation
+  externalClusters:
+    - name: pg-previous-generation
+      barmanObjectStore:
+        destinationPath: https://sttrkk8sf92a7ab3.blob.core.windows.net/pg-backups
+        serverName: pg-20260827
+        azureCredentials:
+          inheritFromAzureAD: true
+        wal:
+          compression: gzip
     # no storageClass -> default = local-path: same node-pin trade as
     # 7.1, on purpose. The operator's replica re-init story meets
     # local storage in the node-loss drill.
@@ -90,7 +121,7 @@ spec:
       # (08-18) almost certainly ran drills 1-3 with archiving broken the
       # same way. Bumping this is now a resume-runbook step (runbook 06),
       # and recovery bootstraps reference the OLD generation's name.
-      serverName: pg-20260827
+      serverName: pg-gen3-20260827
       azureCredentials:
         # No credential Secret anywhere. The node's user-assigned managed
         # identity (id-trk-k8s-node) holds Storage Blob Data Contributor on
