@@ -17,18 +17,44 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# PRECONDITION: the infrastructure must actually be GONE. The first attempt
+# (2026-08-27) measured nothing: `make up` reported "14 unchanged" and
+# bootstrap reported "already initialized" because the destroy + bring-up
+# had happened by hand before the harness ran. Every stage was an
+# idempotent no-op and the numbers were meaningless. A measurement harness
+# that cannot detect its own precondition produces confident nonsense, so
+# check it here rather than trust the operator's memory.
+echo "===== PRECONDITION: infrastructure must be destroyed ====="
+existing="$(cd infra/azure && ./pulumi.sh stack --show-name >/dev/null 2>&1 && ./pulumi.sh stack output nodes 2>/dev/null || true)"
+if [ -n "$existing" ]; then
+  echo "  REFUSING: the stack still has resources. Run 'make destroy' first," >&2
+  echo "  then re-run this harness in the same session." >&2
+  exit 1
+fi
+echo "  stack is empty — this will be a real rebuild"
+
 T0=$(date +%s)
 declare -a REPORT=()
 MANUAL=0
+FAILED=0
 
 stage() { # stage <name> <command...>
   local name="$1"; shift
   local s=$(date +%s)
   echo ""
   echo "===== STAGE: $name ($(date -u +%H:%M:%S)) ====="
-  "$@"
-  local d=$(( $(date +%s) - s ))
-  REPORT+=("$(printf '%-28s %4ds' "$name" "$d")")
+  # Never let a failing stage kill the run before the scorecard prints:
+  # attempt 1 lost every measurement because populate.sh exited non-zero
+  # under `set -e` and the report never reached the terminal. A failed
+  # stage is DATA — record it and continue.
+  if "$@"; then
+    local d=$(( $(date +%s) - s ))
+    REPORT+=("$(printf '%-28s %4ds' "$name" "$d")")
+  else
+    local d=$(( $(date +%s) - s ))
+    REPORT+=("$(printf '%-28s %4ds  ** FAILED **' "$name" "$d")")
+    FAILED=$((FAILED+1))
+  fi
 }
 
 manual() { # manual <description>  — waits for operator, counts against us
@@ -59,10 +85,12 @@ echo "==================== DRILL 5 SCORE ===================="
 for r in "${REPORT[@]}"; do echo "  $r"; done
 echo "  ------------------------------------------"
 printf '  %-28s %4ds\n' "TOTAL" $(( $(date +%s) - T0 ))
-echo "  manual steps: $MANUAL"
+echo "  manual steps:   $MANUAL"
+echo "  failed stages:  $FAILED"
 echo ""
-echo "  Verify data survival: populate above should show '+' lines ONLY for"
-echo "  the three NEW public IPs (they change every rebuild). Sites, cluster,"
-echo "  VMs, prefixes, private IPs: all pre-existing from the archive"
-echo "  bootstrap. The old era's public IPs linger as stale records — the"
-echo "  honest cost of restored data meeting rebuilt infrastructure."
+echo "  populate above shows what the rebuild did NOT carry: with an empty"
+echo "  bootstrap every object is recreated (all '+' lines) — the platform"
+echo "  survives in git, the DATA survives only because populate rediscovers"
+echo "  it. To make the data itself survive, bootstrap the new generation"
+echo "  from the previous one's archive (apps/postgres-cnpg/drill4-pg-restore.yaml"
+echo "  is the reference) — that variant is its own lab."
