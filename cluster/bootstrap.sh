@@ -121,8 +121,21 @@ echo "  apiserver stable ($stable consecutive OK)"
 echo "### Step 5: install Cilium (CNI + Gateway API)"
 # Gateway API CRDs MUST exist before Cilium starts with gatewayAPI.enabled
 # (Phase 6.5) — the agent only registers its controller if it sees them.
-kubectl apply --server-side -f \
-  https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.1/standard-install.yaml > /dev/null
+# Retried like the helm install below. The step 4.5 stability gate proves
+# the apiserver answers, not that it will KEEP answering: drill 5's first
+# attempt died right here with `http2: client connection lost` (2026-08-27)
+# — a fresh control plane dropping the connection mid-apply. Everything in
+# this step is idempotent, so retrying costs nothing and turns a hard exit
+# into a pause.
+for attempt in 1 2 3; do
+  if kubectl apply --server-side -f \
+    https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.1/standard-install.yaml > /dev/null 2>&1; then
+    break
+  fi
+  [ "$attempt" = 3 ] && { echo "  gateway api crd apply failed after 3 attempts" >&2; exit 1; }
+  echo "  gateway api crd apply attempt $attempt failed — retrying in 15s"
+  sleep 15
+done
 echo "  gateway api v1.4.1 crds applied"
 if helm status cilium -n kube-system > /dev/null 2>&1; then
   echo "  cilium already installed — skipping"
