@@ -62,7 +62,19 @@ manual() { # manual <description>  — waits for operator, counts against us
   local s=$(date +%s)
   echo ""
   echo "===== MANUAL STEP #$MANUAL: $1"
-  read -rp "      press enter when done... "
+  # Read from the TERMINAL, not stdin. Attempt 2 (2026-08-27) died right
+  # here: the run got backgrounded, stdin became EOF, `read` returned
+  # non-zero, and set -e killed the script one step from its scorecard —
+  # after a perfectly good rebuild. If there is no tty at all (CI, nohup),
+  # fall back to polling the condition instead of blocking forever.
+  if [ -r /dev/tty ]; then
+    read -rp "      press enter when done... " < /dev/tty || true
+  else
+    echo "      no tty — waiting for DNS to point at the new control plane"
+    local want; want="$(make -s nodes | jq -r '.[] | select(.role=="control-plane").publicIp')"
+    until [ "$(dig +short netbox.k8s.kahng.dev @1.1.1.1 2>/dev/null | tail -1)" = "$want" ]; do sleep 20; done
+    echo "      DNS now resolves to $want"
+  fi
   local d=$(( $(date +%s) - s ))
   REPORT+=("$(printf '%-28s %4ds  (MANUAL)' "$1" "$d")")
 }
