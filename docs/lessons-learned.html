@@ -193,6 +193,7 @@
     <a href="#state">State &amp; storage</a>
     <a href="#migration">Changing clouds</a>
     <a href="#ha">Postgres HA</a>
+    <a href="#drills">The five drills</a>
     <a href="#craft">Operator craft</a>
   </div>
 </nav>
@@ -206,8 +207,24 @@
       <div class="meta-card">
         <h3>Drills find bugs that reading never will</h3>
         <p>Drill 1 found the SSH-readiness race. Drill 2 found the naked-session mistake.
-        Drill 4 proved nodes were cattle. Every deliberate breakage returned a real fix —
-        none of them would have surfaced from documentation.</p>
+        Drill 4 proved nodes were cattle. Later, the Postgres card found an unpinned secret, a
+        lying resource request, and an entire era running with no backups. Every deliberate
+        breakage returned a real fix — none would have surfaced from documentation.</p>
+      </div>
+      <div class="meta-card">
+        <h3>The dangerous failures are the quiet ones</h3>
+        <p><span class="mono">archived_count</span> climbing against an empty bucket. "Expected empty
+        archive" leaving a whole generation backup-less while every app stayed green. A Cluster with no
+        status at all under a fully Synced GitOps board. None raised an alarm; all three were caught only
+        by inspecting the artifact itself — listing the bucket, reading the instance log, asking whether
+        the resource actually has a status.</p>
+      </div>
+      <div class="meta-card">
+        <h3>The instrument fails more than the system</h3>
+        <p>The final drill took three attempts and every failure was in the measuring harness, not the
+        cluster: it timed an idempotent no-op and reported confident numbers, died before printing its own
+        scorecard, then blocked on stdin that backgrounding had removed. Across the whole card, the serious
+        outages traced to configuration and tooling — rarely to Kubernetes or Postgres.</p>
       </div>
       <div class="meta-card">
         <h3>Idempotency is the feature that pays for everything</h3>
@@ -656,6 +673,38 @@
         knowing before any 7.x touches upgrades.</div>
         <div class="src"><span>jul 18 · 7.1</span><span class="pill observed">observed</span></div>
       </div>
+      <div class="lesson">
+        <div class="claim">Backups can fail at the granularity of an entire generation, silently.</div>
+        <div class="story">CNPG refuses to archive a new cluster into a prefix holding a dead cluster's WALs
+        ("Expected empty archive") — and the refusal surfaces only as <span class="mono">ContinuousArchiving:
+        False</span> while every app stays green. A rebuild had been running with <em>no working backups at
+        all</em> and nothing said so. Every rebuild now bumps a dated <span class="mono">serverName</span>.</div>
+        <div class="src"><span>aug 25 · runbook 06</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">"Waiting" and "deadlocked" look identical from a status field.</div>
+        <div class="story">A replica sat on <span class="mono">Waiting for the instances to become active</span>
+        for 40 minutes. The instance log had the truth: pg_rewind needed the WAL segment that was <em>open</em>
+        when its node died — never archived, gone. The operator retried the impossible forever rather than
+        escalating. Deleting the PVC and letting it re-clone took 32 seconds.</div>
+        <div class="src"><span>aug 18 · runbook 07</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Read the CRD, not the docs, when they disagree.</div>
+        <div class="story">The upstream migration guide showed <span class="mono">retentionPolicy</span> as an
+        object; the installed CRD declared it a string and rejected the object outright. One
+        <span class="mono">kubectl get crd -o jsonpath</span> settled in a second what the docs got wrong.</div>
+        <div class="src"><span>aug 28 · barman plugin</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Migrate backup machinery while the cluster is dead, not while it is live.</div>
+        <div class="story">Moving off in-tree <span class="mono">barmanObjectStore</span> (deleted in CNPG 1.31)
+        was done as a birth rather than a migration, because the cluster had already been destroyed. Three
+        schema surprises and a silent reconcile race followed — each of which would otherwise have hit a
+        working database mid-rollout. The archive format is unchanged, so the plugin reads what the old code
+        wrote; only the configuration pointing at it moved.</div>
+        <div class="src"><span>aug 28 · barman plugin</span><span class="pill observed">observed</span></div>
+      </div>
     </div>
   </div>
 </section>
@@ -1067,12 +1116,112 @@
   </div>
 </section>
 
+<!-- ============ DRILLS ============ -->
+<section id="drills">
+  <div class="wrap">
+    <h2>The five drills — breaking it on purpose</h2>
+    <p class="section-sub">The capstone card, run against a database holding this cluster's own inventory. Every measurement below came from a deliberate breakage.</p>
+    <div class="lessons">
+      <div class="lesson">
+        <div class="claim">Deleting the primary pod is a switchover, not a crash test.</div>
+        <div class="story">The "dead" primary kept serving writes for <em>three minutes</em> after
+        <span class="mono">kubectl delete</span>: CNPG uses the termination grace to run an orderly handover,
+        and the delete command blocks while it does. Total write gap 31s, zero rows lost. Real crash semantics
+        need <span class="mono">--grace-period=0</span> or an actual lost node — otherwise you are measuring
+        the polite path and calling it a failure.</div>
+        <div class="src"><span>aug 18 · drill 1</span><span class="pill observed">observed</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">The pooler is what turns an outage into a slow moment.</div>
+        <div class="story">124 requests entered a 31-second window with no writable database; 116 succeeded.
+        PgBouncer holds clients rather than refusing them, then replays onto the new primary once the rw
+        endpoint moves. The indirection added in 7.2 paid for itself in one drill.</div>
+        <div class="src"><span>aug 18 · drill 1</span><span class="pill observed">observed</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">A resource request is a promise to the scheduler — and ours was a lie.</div>
+        <div class="story">NetBox requested 512Mi and spiked past 1.5Gi at boot, so the scheduler packed two
+        booting pods onto one 4Gi worker. The node didn't OOM-kill a container; it thrashed until its kubelet
+        went silent and the taint manager evicted everything. Three node-wedges in an afternoon, all the same
+        arithmetic in different disguises — a dishonest request, then an RWO volume pinning every replica to
+        one node, then platform pods with no requests at all hiding the real free memory.</div>
+        <div class="src"><span>aug 18 · drill 2</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Chart-generated secrets under GitOps are time bombs with a per-sync fuse.</div>
+        <div class="story">Helm's <span class="mono">lookup</span> returns empty under
+        <span class="mono">helm template</span> — which is how Argo CD renders — so an upgrade minted a fresh
+        Valkey password mid-rollout. Valkey restarted with it and every <em>running</em> pod died on stale cache
+        credentials: nine minutes of 500s, from a secret we had never pinned. Every other NetBox secret had been
+        pinned for exactly this reason; the subchart's was missed.</div>
+        <div class="src"><span>aug 19 · drill 2</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Hard anti-affinity plus surge rollouts deadlock when replicas equal nodes.</div>
+        <div class="story">RollingUpdate wants room for an extra pod; required anti-affinity says that room
+        cannot exist. The surge pod stayed Pending forever while the old, already-broken pods squatted both
+        workers — the deployment could neither advance nor retreat. Fix: <span class="mono">maxSurge: 0</span>,
+        roll down first, accept a brief single-pod window in exchange for a rollout that always completes.</div>
+        <div class="src"><span>aug 19 · drill 2</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">The migration was innocent; the delivery machinery was guilty.</div>
+        <div class="story">Schema migrations under multiple replicas — the thing the drill was designed to
+        fear — applied exactly once with no observable lock contention. The nine-minute outage came entirely
+        from the two config bugs above. Upgrades fail at the edges, not the centre.</div>
+        <div class="src"><span>aug 19 · drill 2</span><span class="pill observed">observed</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">"It's just a cache" is a claim to verify, not assume.</div>
+        <div class="story">Killing Valkey returned <em>hard 500s</em> for 22 seconds — sessions and config
+        caching are load-bearing in NetBox, not a graceful-degradation layer. Meanwhile the thing predicted to
+        die, the RQ job queue, survived intact: bitnami ships appendonly-yes onto a PVC and a StatefulSet pod
+        returns as itself, so the AOF replayed. Both textbook predictions inverted in one drill.</div>
+        <div class="src"><span>aug 19 · drill 3</span><span class="pill observed">observed</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Infrastructure death is cheaper than configuration betrayal.</div>
+        <div class="story">Valkey pod killed: 22 seconds, self-healing, zero hands. Valkey password rotated:
+        nine minutes, every pod, manual intervention twice. The pod is cattle; the credential is a contract.</div>
+        <div class="src"><span>aug 19 · drills 2–3</span><span class="pill observed">observed</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">A restore that doesn't resume backups isn't finished — and neither is one you live on.</div>
+        <div class="story">PITR rebuilt the database 4 seconds before a cascading delete in 35 seconds: the
+        deleted machine existed again, a table written after the target did not. But recovery only ended when
+        the app was repointed <em>back</em> to the canonical cluster, its hole healed by re-running the
+        idempotent populate script, and the restored cluster was archiving under its own generation name.</div>
+        <div class="src"><span>aug 26 · drill 4</span><span class="pill observed">observed</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">The platform survives in git; the data survives only in object storage.</div>
+        <div class="story">Every earlier rebuild "kept" its data because populate.sh rediscovers infrastructure
+        records from the live cluster — worthless for anything a human typed. Drill 5's cluster was
+        <em>born</em> from the previous generation's archive: 8.5 minutes destroy-to-converged, one manual step,
+        and populate found nothing to create but the three new public IPs. A quieter proof came free — no API
+        token had to be minted, because the token file on the laptop still matched the row restored from blob.</div>
+        <div class="src"><span>aug 27 · drill 5</span><span class="pill observed">observed</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">The instrument fails more often than the system under test.</div>
+        <div class="story">Drill 5 took three attempts and every failure was in the harness: it measured an
+        idempotent no-op and reported confident numbers; it died under <span class="mono">set -e</span> before
+        printing its own scorecard; then it blocked on stdin that backgrounding had removed. The cluster passed
+        every stage on the one attempt that ran. The same shape recurred all week — the drills kept finding our
+        tooling rather than Kubernetes.</div>
+        <div class="src"><span>aug 27 · drill 5</span><span class="pill bitten">bitten</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
 <footer class="site">
   <div class="wrap">
-    <p>Distilled from <span class="mono">docs/journal/</span> (18 entries, 2026-07-13 → 2026-08-05)
-    and <span class="mono">docs/decisions/</span> (ADR 001–005). Companion page:
+    <p>Distilled from <span class="mono">docs/journal/</span> (30 entries, 2026-07-13 → 2026-08-28)
+    and <span class="mono">docs/decisions/</span> (ADR 001–011). Companion page:
     <span class="mono">docs/architecture.html</span> — the diagrams these lessons were earned on.
-    Current as of the AWS→Azure migration, 2026-08-05 (ADR 009). Phase 7.5 (NetBox capstone) resumes from here.</p>
+    Current as of 2026-08-28. Phase 7 is complete — Postgres from a single StatefulSet to an operator-run cluster with point-in-time recovery, closed out by the five-drill card. Phase 8 (the Talos comparison) opens from here.</p>
   </div>
 </footer>
 
