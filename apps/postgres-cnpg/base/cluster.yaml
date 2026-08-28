@@ -30,18 +30,24 @@ spec:
   # (postgres:18 / trixie) — keeps the comparison honest.
   #
   # SYSTEM, not standard: CNPG splits its images by what they carry.
-  # `standard` dropped the barman-cloud binaries because backups are
-  # migrating to the Barman Cloud Plugin; `system` still ships them, and
-  # in-tree spec.backup.barmanObjectStore (below) invokes them directly.
-  # Found the hard way: with `standard`, WAL archiving fails with
-  # `"barman-cloud-wal-archive": executable file not found in $PATH` —
-  # and Postgres reports archived_count climbing regardless (see the
-  # journal; CNPG's no-op archive path lies by omission).
-  # The plugin (v0.14.0, pre-1.0) is the future; migration is a noted
-  # follow-up, not this lab's lesson.
+  # `standard` dropped the barman-cloud binaries; `system` still ships
+  # them. Found the hard way in 7.4: with `standard`, WAL archiving failed
+  # with `"barman-cloud-wal-archive": executable file not found in $PATH`
+  # while Postgres reported archived_count climbing anyway (CNPG's no-op
+  # archive path lies by omission).
+  #
+  # KEPT after the plugin migration (2026-08-27) even though the plugin
+  # runs barman in its OWN sidecar image, which in principle frees the
+  # postgres image to be `standard`. Not changing two things at once: the
+  # image swap is a separate, testable change, and reverting to `standard`
+  # while anything still shells out to the in-tree path would resurrect a
+  # failure mode that already cost a day.
   imageName: ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie
   storage:
     size: 5Gi
+    # no storageClass -> default = local-path: same node-pin trade as
+    # 7.1, on purpose. The operator's replica re-init story meets
+    # local storage in the node-loss drill.
 
   # DATA SURVIVAL (drill 5, staged 2026-08-27): this generation is BORN from
   # the previous generation's archive instead of empty. Every prior rebuild
@@ -66,16 +72,19 @@ spec:
       source: pg-previous-generation
   externalClusters:
     - name: pg-previous-generation
-      barmanObjectStore:
-        destinationPath: https://sttrkk8sf92a7ab3.blob.core.windows.net/pg-backups
-        serverName: pg-20260827
-        azureCredentials:
-          inheritFromAzureAD: true
-        wal:
-          compression: gzip
-    # no storageClass -> default = local-path: same node-pin trade as
-    # 7.1, on purpose. The operator's replica re-init story meets
-    # local storage in the node-loss drill.
+      # Plugin form (v0.14.0): one ObjectStore describes the CONTAINER, and
+      # serverName picks which generation inside it to read. So the same
+      # pg-store serves both roles — write into pg-gen4, recover from
+      # pg-gen3 — instead of duplicating credentials per generation.
+      # Verified present before wiring: pg-gen3-20260827 holds base backups
+      # AND WAL (a generation with WAL but no base backup cannot bootstrap
+      # anything). It is the newest data: the drill-5 era, including the
+      # three public IPs populate recorded there.
+      plugin:
+        name: barman-cloud.cloudnative-pg.io
+        parameters:
+          barmanObjectName: pg-store
+          serverName: pg-gen3-20260827
 
   # Roles CNPG reconciles for us. The netbox role owns the netbox database
   # (netbox-database.yaml) and is what the app authenticates as — so NetBox
@@ -94,42 +103,22 @@ spec:
 
   # THE capability neither stack had before 7.4. Drill 3 proved etcd
   # snapshots don't cover PV data; 7.1 proved a `destroy` takes the
-  # database with it. Ported to Azure Blob during the ADR 009 exile and
-  # back to S3 on the return (ADR 010) — same two mechanisms both times:
+  # database with it. Two mechanisms, unchanged since:
   #   - WAL archiving: every closed segment ships to object storage. What
   #     makes point-in-time recovery possible at all.
   #   - Base backups: periodic full copies (scheduledbackup.yaml); recovery
   #     = nearest base backup + replay WAL forward.
   # RPO measured on BOTH clouds: the currently-open WAL segment.
-  backup:
-    retentionPolicy: 7d
-    barmanObjectStore:
-      # Third destination swap (aws -> azure -> aws -> azure): back on blob
-      # 2026-08-17 to burn credits before Sept 4. The container lives in
-      # rg-trk-k8s-persistent behind a CanNotDelete lock, so backups survive
-      # `make destroy` by platform enforcement (ADR 008/009). Names are
-      # deterministic (hash of the subscription id), which is why this URL
-      # is identical to the pre-teardown one even though foundation.sh
-      # rebuilt everything from zero.
-      destinationPath: https://sttrkk8sf92a7ab3.blob.core.windows.net/pg-backups
-      # serverName MUST change on every rebuild that reuses this container.
-      # CNPG refuses to archive a NEW cluster into a prefix that already
-      # holds a dead generation's WALs ("Expected empty archive") — and it
-      # fails SILENTLY from the app's perspective: ContinuousArchiving goes
-      # False while everything else stays green. Found 2026-08-25 with the
-      # fresh cluster stuck on its very first segment; the previous rebuild
-      # (08-18) almost certainly ran drills 1-3 with archiving broken the
-      # same way. Bumping this is now a resume-runbook step (runbook 06),
-      # and recovery bootstraps reference the OLD generation's name.
-      serverName: pg-gen3-20260827
-      azureCredentials:
-        # No credential Secret anywhere. The node's user-assigned managed
-        # identity (id-trk-k8s-node) holds Storage Blob Data Contributor on
-        # this container, and barman reaches it over IMDS — the Azure
-        # counterpart to AWS's inheritFromIAMRole. TRADE-OFF unchanged from
-        # ADR 007: node-scoped, so any pod on the node could reach it.
-        inheritFromAzureAD: true
-      wal:
-        compression: gzip
-      data:
-        compression: gzip
+  #
+  # As of 2026-08-27 this is a PLUGIN, not an in-tree config block: CNPG
+  # removes spec.backup.barmanObjectStore in 1.31, so the whole destination
+  # moved to objectstore.yaml and only this reference remains. isWALArchiver
+  # is what makes the plugin the archive_command's target — without it the
+  # plugin can take base backups while WAL archiving silently does nothing,
+  # which is the same class of quiet failure as the archived_count lie (7.4)
+  # and the empty-archive refusal (08-25).
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: pg-store

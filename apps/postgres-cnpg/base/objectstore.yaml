@@ -1,0 +1,36 @@
+# The backup destination, extracted from the Cluster (2026-08-27).
+#
+# CNPG deprecated in-tree spec.backup.barmanObjectStore in 1.26 and REMOVES
+# it in 1.31, so this migration was a deadline, not a preference: every
+# backup, PITR and rebuild-with-data capability in this project runs through
+# barman-cloud. The plugin (v0.14.0, installed by platform.sh into
+# cnpg-system) reads and writes the SAME on-disk archive layout, which is
+# why an archive written by the in-tree implementation stays readable — and
+# why the previous generation remains a valid recovery source.
+#
+# What moved where, versus the old Cluster spec:
+#   spec.backup.barmanObjectStore  -> spec.configuration (verbatim)
+#   spec.backup.retentionPolicy    -> spec.retentionPolicy.retention
+#   (the Cluster keeps only a `plugins:` reference)
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: pg-store
+  namespace: postgres-cnpg
+spec:
+  configuration:
+    destinationPath: https://sttrkk8sf92a7ab3.blob.core.windows.net/pg-backups
+    # Per-generation prefix — unchanged rule (runbook 06 step 1b): a new
+    # cluster cannot archive into a dead generation's prefix ("Expected
+    # empty archive"). Bump on every rebuild.
+    serverName: pg-gen4-20260827
+    azureCredentials:
+      # Node managed identity over IMDS, no credential Secret. Same
+      # node-scoped trade-off as ever (ADR 007).
+      inheritFromAzureAD: true
+    wal:
+      compression: gzip
+    data:
+      compression: gzip
+  retentionPolicy:
+    retention: "7d"

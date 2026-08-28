@@ -70,8 +70,13 @@ Then the post-rebuild manual steps below.
 
 1. Cloudflare: update `*.k8s.kahng.dev` A record → new control-plane
    public IP (proxy off).
-1b. **Bump CNPG's `serverName`** in `apps/postgres-cnpg/base/cluster.yaml`
-   (date-stamped, e.g. `pg-20260825`) and push. CNPG refuses to archive a
+1b. **Bump CNPG's `serverName`** in
+   `apps/postgres-cnpg/base/objectstore.yaml` (date-stamped, e.g.
+   `pg-gen4-20260827`) and push — and if the new cluster should be BORN
+   from the previous generation's data, point
+   `cluster.yaml`'s `externalClusters[0].plugin.parameters.serverName` at
+   the generation you just retired. Since 2026-08-27 the destination lives
+   in an ObjectStore CR (barman cloud plugin), not in the Cluster. CNPG refuses to archive a
    new cluster into a prefix holding a dead generation's WALs ("Expected
    empty archive") and the failure is SILENT: `ContinuousArchiving` goes
    False while every app stays green — the rebuilt cluster runs with NO

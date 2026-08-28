@@ -99,6 +99,35 @@ fi
 kubectl apply -f "$REPO_ROOT/cluster/addons/cert-manager/issuers/letsencrypt.yaml" > /dev/null
 echo "  issuers applied"
 
+echo "### barman cloud plugin (CNPG backups, ex in-tree barmanObjectStore)"
+# WHY this exists at all: CNPG deprecated in-tree spec.backup.barmanObjectStore
+# in 1.26 and REMOVES it in 1.31. Every backup, PITR and rebuild-with-data
+# capability this project has rests on it, so the migration is not optional
+# — it just has a deadline (ADR 007 follow-up, journal 2026-08-27).
+#
+# Installed HERE, not as an ArgoCD Application, for two reasons: it ships a
+# plain manifest URL (ArgoCD sources are git/helm/oci — no raw URLs), and
+# ordering matters — the plugin must exist BEFORE ArgoCD creates a Cluster
+# that declares it, or the cluster comes up with a WAL archiver that isn't
+# there. Same reasoning as the Gateway API CRDs at bootstrap.
+#
+# It must live in the OPERATOR's namespace and needs cert-manager (installed
+# just above) for its internal certificates.
+if kubectl -n cnpg-system get deploy barman-cloud > /dev/null 2>&1; then
+  echo "  barman-cloud plugin already installed"
+else
+  # The manifest carries no Namespace object and cnpg-system does not exist
+  # yet at this point — ArgoCD installs the operator later, from git. Create
+  # it here; the operator's own Application is satisfied by an existing
+  # namespace (CreateNamespace=true), same as the netbox/postgres-cnpg
+  # pre-creation below.
+  kubectl get ns cnpg-system > /dev/null 2>&1 || kubectl create ns cnpg-system > /dev/null
+  kubectl apply --server-side -f \
+    https://github.com/cloudnative-pg/plugin-barman-cloud/releases/download/v0.14.0/manifest.yaml > /dev/null
+  kubectl -n cnpg-system rollout status deploy/barman-cloud --timeout=180s > /dev/null
+  echo "  barman-cloud plugin v0.14.0 installed (deployment barman-cloud, CRD objectstores.barmancloud.cnpg.io)"
+fi
+
 echo "### gateway (cilium gateway api — the edge, ex ingress-nginx)"
 # Cilium's controller (enabled at bootstrap) programs it; cert-manager
 # issues the wildcard *.k8s.kahng.dev cert the HTTPS listener references.

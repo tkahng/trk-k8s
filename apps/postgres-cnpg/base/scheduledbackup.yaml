@@ -17,3 +17,10 @@ spec:
   backupOwnerReference: self
   cluster:
     name: pg
+  # method + pluginConfiguration replace the implicit in-tree path
+  # (2026-08-27). A ScheduledBackup left on the default method after the
+  # Cluster moves to the plugin keeps targeting machinery the Cluster no
+  # longer declares — backups that look scheduled and never land.
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io
