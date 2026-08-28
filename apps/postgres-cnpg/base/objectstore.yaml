@@ -24,6 +24,15 @@ kind: ObjectStore
 metadata:
   name: pg-store
   namespace: postgres-cnpg
+  annotations:
+    # Wave -1: create the ObjectStore BEFORE the Cluster. Learned 2026-08-27:
+    # applied in the same wave, the plugin's pre-reconcile hook ran ~15s
+    # before the ObjectStore existed, correctly halted the reconcile loop and
+    # requeued — but nothing re-triggered it afterwards. The Cluster then sat
+    # with NO STATUS AT ALL for 30 minutes while ArgoCD reported Synced and
+    # every app looked healthy. A `kubectl annotate` nudge released it.
+    # Ordering removes the race instead of relying on the nudge.
+    argocd.argoproj.io/sync-wave: "-1"
 spec:
   configuration:
     destinationPath: https://sttrkk8sf92a7ab3.blob.core.windows.net/pg-backups
