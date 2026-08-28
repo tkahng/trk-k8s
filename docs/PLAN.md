@@ -166,19 +166,47 @@ confidently. Deliberate progression:
    Plus the capability neither stack had: S3 WAL archiving + PITR,
    restore into a fresh cluster in 52s, RPO measured at one open WAL
    segment. Zalando dropped — the comparison is already made.
-5. 🔨 (2026-08-06) Capstone: **NetBox** on CNPG, live at
+5. ✅ (2026-08-27) Capstone: **NetBox** on CNPG, live at
    `https://netbox.k8s.kahng.dev:30443` — 198 tables in a CNPG-managed
    database, RQ worker, native Gateway API route under the wildcard cert
    (`docs/notes/capstone-scope.md`, journal 2026-08-06). Chosen over Saleor
    and Supabase: both Supabase and Immich ship *patched* Postgres images so
    neither would exercise the 7.4 platform, and NetBox's data is this
-   cluster's own infrastructure — worth restoring, which is what Phase 8
-   needs. Remaining: populate it with the real VPC/subnet/nodes, then the
-   five-drill card (failover under load, migrations at replicaCount 3, cache
-   vs queue, restore-with-app, full rebuild).
+   cluster's own infrastructure — worth restoring, which is what the Talos
+   lab needs. Populated by `apps/netbox/populate.sh` (discovery-driven:
+   inventory contract + kubeadm-config + live nodes, never hardcoded).
+
+   **Five-drill card complete (journals 08-18 → 08-27):**
+   | drill | result |
+   |---|---|
+   | 1 failover under load | 31s write gap, 8 failed requests of 124 — the pooler absorbed it; zero rows lost. A graceful pod delete is a *switchover*: the "dead" primary served for 3 more minutes |
+   | 2 migrations at scale | Migration was a non-event (applied once, no observable locks). The *delivery machinery* caused a 9-min outage: an unpinned chart secret rotating mid-sync + anti-affinity deadlocking surge rollouts. Both fixed; fixed roll cost 153 failures vs 2,145 |
+   | 3 cache vs queue | Both textbook predictions inverted: the queue SURVIVED (AOF on a PVC, ~1s RPO) and the "cache" did NOT degrade gracefully (22s of hard 500s — sessions are load-bearing) |
+   | 4 restore with the app | Cascading delete at 23:51:34 → PITR to 23:51:30 in 35s; deleted VM back in the running app, post-target writes correctly absent, restored cluster archiving again |
+   | 5 rebuild from git + blob | **8.5 min destroy-to-converged, 1 manual step**, database *born* from the previous generation's archive: populate created nothing but the 3 new public IPs |
+
+   Cross-cutting lesson: infrastructure was rarely the unreliable part.
+   Drill 5 needed three attempts and all three failures were in the
+   measuring harness, not the cluster.
 
 Depends on: storage (Phase 4 CSI/local-path), ingress + cert-manager
 (Phase 5), and ideally GitOps (ArgoCD) for the capstone.
+
+### Open follow-ups (carried, not phases)
+- **Barman Cloud Plugin migration — has a deadline.** CNPG warns at apply
+  time that in-tree `barmanObjectStore` is REMOVED in 1.31. Every drill's
+  backup machinery depends on it, so this blocks any operator upgrade past
+  1.30. Cheapest moment is a healthy cluster, not a rebuild.
+- **Blob/S3 generation sprawl.** `serverName` per rebuild (runbook 06 step
+  1b) means dead generations accumulate and no retention policy prunes
+  them: currently `pg`, `pg-20260825`, `pg-20260827`, `pg-gen3-20260827`,
+  `pg-restore-20260825` in blob, plus the AWS-era prefixes in S3. Pennies,
+  but it will keep growing.
+- **Stale IPAM records.** Restored data meets rebuilt infrastructure: 9 IP
+  records for 3 machines, since public IPs change every rebuild. An IPAM
+  hygiene problem the drills exposed but didn't solve.
+- **HTML pages are stale** — `architecture.html` and `lessons-learned.html`
+  still describe the AWS era; `netbox-drills.html` predates the results.
 
 ### Phase 8 — Talos comparison lab (added 2026-07-18)
 Rebuild on Talos Linux and judge it against kubeadm+Ubuntu — ADR 004
