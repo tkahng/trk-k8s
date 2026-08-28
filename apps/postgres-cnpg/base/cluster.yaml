@@ -122,3 +122,7 @@ spec:
       isWALArchiver: true
       parameters:
         barmanObjectName: pg-store
+        # The write-side generation prefix (runbook 06 step 1b). Bump on
+        # every rebuild: a new cluster cannot archive into a dead
+        # generation's prefix ("Expected empty archive", 08-25).
+        serverName: pg-gen4-20260827

@@ -9,9 +9,16 @@
 # why the previous generation remains a valid recovery source.
 #
 # What moved where, versus the old Cluster spec:
-#   spec.backup.barmanObjectStore  -> spec.configuration (verbatim)
+#   spec.backup.barmanObjectStore  -> spec.configuration (MINUS serverName)
 #   spec.backup.retentionPolicy    -> spec.retentionPolicy.retention
+#   spec.backup...serverName       -> the Cluster's plugin PARAMETERS
 #   (the Cluster keeps only a `plugins:` reference)
+#
+# serverName is forbidden here ("use the 'serverName' plugin parameter in
+# the Cluster resource") and the split is the better model: an ObjectStore
+# describes a CONTAINER, and each cluster picks its own generation prefix
+# inside it — for writes via plugins[].parameters, for reads via
+# externalClusters[].plugin.parameters.
 apiVersion: barmancloud.cnpg.io/v1
 kind: ObjectStore
 metadata:
@@ -20,10 +27,6 @@ metadata:
 spec:
   configuration:
     destinationPath: https://sttrkk8sf92a7ab3.blob.core.windows.net/pg-backups
-    # Per-generation prefix — unchanged rule (runbook 06 step 1b): a new
-    # cluster cannot archive into a dead generation's prefix ("Expected
-    # empty archive"). Bump on every rebuild.
-    serverName: pg-gen4-20260827
     azureCredentials:
       # Node managed identity over IMDS, no credential Secret. Same
       # node-scoped trade-off as ever (ADR 007).
