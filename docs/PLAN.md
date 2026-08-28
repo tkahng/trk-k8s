@@ -192,6 +192,22 @@ confidently. Deliberate progression:
 Depends on: storage (Phase 4 CSI/local-path), ingress + cert-manager
 (Phase 5), and ideally GitOps (ArgoCD) for the capstone.
 
+### Phase 8 progress (in flight, 2026-08-28)
+- ✅ Session A staging: Talos v1.13.9 image pipeline (factory VHD → page
+  blob → managed image → Compute Gallery, because a VHD-built managed
+  image is SCSI-only and every VM family with quota here is NVMe-only),
+  `infra/azure-talos` Pulumi program, `cluster-talos/bootstrap.sh`,
+  machine-config patch (`cni: none`, kube-proxy off, kubelet extraMounts
+  for local-path on an immutable FS), and ten `make talos-*` targets.
+- 🔨 Session A live run: machines provision cleanly; `talosctl bootstrap`
+  timed out on missing certificate SANs for the NAT'd public IPs — the
+  Phase 2 `--apiserver-cert-extra-sans` lesson again. Fixed, not yet re-run.
+- ⬜ Session B: Cilium (KubePrism as `k8sServiceHost`), then the payoff —
+  restore the NetBox database from the SAME blob archive the kubeadm
+  cluster wrote, so the data outlives the cluster, the OS AND the
+  bootstrap method.
+- No runbook until the procedure completes once.
+
 ### Open follow-ups (carried, not phases)
 - ✅ **Barman Cloud Plugin migration — DONE 2026-08-28** (journal). Plugin
   v0.14.0 installed by platform.sh; destination lives in an ObjectStore CR;
@@ -218,7 +234,14 @@ banked that experience. Two things recorded now, decided then:
   Talos has no SSH — the whole `cluster/` layer (prep-node, bootstrap,
   etcd drills) gets replaced by machine configs + `talosctl`, and the
   Phase 6.5 stack (kube-proxy-free Cilium, hostNetwork gateway, CRD
-  ordering) needs re-porting. `infra/<provider>/` survives unchanged.
+  ordering) needs re-porting. ~~`infra/<provider>/` survives unchanged.~~
+  **FALSIFIED 2026-08-28** (session A journal): `infra/` needed four
+  non-optional changes — a Compute Gallery image built by script (Azure
+  publishes no Talos image at all), an `osProfile` carrying an admin user
+  and SSH key for an OS that has neither, port 50000 in place of 22, and
+  `sshUser` demoted to `"n/a-talos"`. Revised claim: the seam absorbs a
+  CLOUD swap completely, a DISTRIBUTION swap only partly — the parts of
+  `infra/` describing *what a machine is* belong to the OS, not the cloud.
 - **Deliberately after Phase 7:** the drill that makes Talos interesting
   is rebuild-with-state (machine configs + the etcd/PV backup story with
   real Postgres data at stake) — stateless rebuilds would just re-prove
