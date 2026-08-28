@@ -277,7 +277,7 @@
     </p>
     <div class="chips">
       <span class="chip"><b>k8s</b> v1.36.3</span>
-      <span class="chip"><b>Azure</b> eastus · D2als_v7 + 2× F1as_v7</span>
+      <span class="chip"><b>Azure</b> eastus · D2als_v7 + 2× D4als_v7</span>
       <span class="chip"><b>CNI</b> Cilium 1.19.4 (eBPF, no kube-proxy)</span>
       <span class="chip"><b>edge</b> Gateway API · Envoy :30443</span>
       <span class="chip"><b>rebuild</b> ~8 min, hands-off</span>
@@ -359,29 +359,27 @@
               </div>
               <div class="box node">
                 <div class="t">k8s-worker-1</div>
-                <div class="d">worker · 10.0.1.11<br><b>F1as_v7</b> 1 vCPU / 4 GiB<br>pip + nic + vm · Ubuntu 24.04</div>
+                <div class="d">worker · 10.0.1.11<br><b>D4als_v7</b> 4 vCPU / 8 GiB<br>pip + nic + vm · Ubuntu 24.04</div>
               </div>
               <div class="box node">
                 <div class="t">k8s-worker-2</div>
-                <div class="d">worker · 10.0.1.12<br><b>F1as_v7</b> 1 vCPU / 4 GiB<br>pip + nic + vm · Ubuntu 24.04</div>
+                <div class="d">worker · 10.0.1.12<br><b>D4als_v7</b> 4 vCPU / 8 GiB<br>pip + nic + vm · Ubuntu 24.04</div>
               </div>
             </div>
           </div>
         </div>
       </div>
       <p class="callout" style="margin-bottom:0">
-        <b>Why the sizes are uneven — quota, not preference.</b> <span class="mono">Standard_B2als_v2</span> was
-        the perfect match (burstable, 2 vCPU/4 GiB, <span class="mono">$0.0376/hr</span> — identical to
-        t3a.medium in shape <i>and</i> price) but the entire B-series is capacity-restricted on a trial
-        subscription. <span class="mono">az vm list-sizes</span> reports it available; only
-        <span class="mono">az vm list-skus</span>'s <span class="mono">restrictions</span> field tells the truth —
-        <b>16 of 522</b> visible SKUs are actually usable. Then <b>Total Regional vCPUs is capped at 4</b>
-        (identical in eastus, westus2, centralus, eastus2 — relocating doesn't help), so three 2-core nodes
-        were impossible. The fix keeps the full topology inside 4 cores: a 2-core control plane (kubeadm's
-        NumCPU preflight <i>requires</i> 2) plus two 1-core workers, every node still 4 GiB.
-        <b>Phase 1's lesson, third and fourth occurrence:</b> a provider listing a product is not the same as
-        having capacity for you.
-      </p>
+        <b>Sizes: a quota story, then a capacity story.</b> On the trial subscription the entire
+        B-series was capacity-restricted (<span class="mono">az vm list-sizes</span> reports it available;
+        only <span class="mono">az vm list-skus</span>'s <span class="mono">restrictions</span> field tells the
+        truth) and <b>Total Regional vCPUs was capped at 4</b> — so the first Azure cluster ran a 2-core control
+        plane and two 1-core workers. Upgrading to pay-as-you-go lifted the cap to 10, and then <b>drill 2
+        found the real constraint was memory, not cores</b>: a 4 GiB worker minus OS, kubelet, Cilium, a CNPG
+        instance and the platform stack leaves room for roughly ONE NetBox boot spike. Three node-wedges in an
+        afternoon were that arithmetic in three disguises. Workers went to <span class="mono">D4als_v7</span>
+        (4 vCPU / 8 GiB); the control plane stayed at 2 cores because etcd wanted latency, not cores — which
+        Premium SSD delivered (70 slow-apply warnings in 30 minutes → zero).</p>
     </div>
 
     <h3 class="band">nsg-trk-k8s — every inbound rule</h3>
@@ -538,14 +536,16 @@
         <div class="step"><div class="t">restore</div><div class="d">measured on AWS: 52s<br>RPO = open WAL segment</div></div>
       </div>
       <p class="callout" style="margin-bottom:0">
-        <b>Currently OFF.</b> The 7.4 backup lab archived to <span class="mono">s3://trk-k8s-pg-backups</span>
-        with <span class="mono">inheritFromIAMRole</span>, and measured a restore into a cluster that never
-        existed at <b>exactly one row lost of 660</b> — the RPO is the currently-open WAL segment. The bucket
-        and the account are both gone, so the config was removed rather than left failing. CNPG supports
-        <span class="mono">azureCredentials</span> with <span class="mono">inheritFromAzureAD</span>, and
-        <span class="mono">id-trk-k8s-node</span> exists for exactly this; the port needs a blob container and
-        a Storage Blob Data Contributor assignment. Its own lab, as it was on AWS.
-      </p>
+        <b>On, and now plugin-based.</b> WAL archiving and base backups run against the
+        <span class="mono">pg-backups</span> blob container in the locked resource group, reached with
+        <span class="mono">inheritFromAzureAD</span> — the node's managed identity over IMDS, no credential in
+        the cluster (the Azure counterpart to AWS's <span class="mono">inheritFromIAMRole</span>). Since
+        2026-08-28 the destination lives in an <span class="mono">ObjectStore</span> CR read by the
+        <b>Barman Cloud Plugin</b>, because CNPG deletes the in-tree config block in 1.31; the plugin reads
+        archives the old code wrote, so nothing in object storage had to move. Two rules learned the hard way:
+        every rebuild needs a fresh <span class="mono">serverName</span> prefix (CNPG refuses to archive into a
+        dead generation's, and fails <i>silently</i>), and the only honest check that backups exist is listing
+        the bucket — <span class="mono">archived_count</span> lies.</p>
       <p class="callout" style="margin-bottom:0">
         <b>Two warnings that survive the migration.</b>
         <span class="mono">pg_stat_archiver.archived_count</span> climbed to 15 and the cluster reported
@@ -704,6 +704,37 @@
         </ul>
       </div>
       <div class="phase future">
+      <div class="phase done">
+        <h4>Two more provider swaps <span class="pill ok">done</span> <span class="when">aug 6 · aug 17</span></h4>
+        <p>The AWS account came back, so the cluster went home (ADR 010) — and a suspended AWS
+        account turns out to <b>keep its resources</b>: both buckets and all Pulumi state survived, so
+        the return was a resume, not a rebuild. Then Azure credits with a Sept 4 expiry pulled it back
+        the other way (ADR 011). Three swaps total; <span class="mono">cluster/</span> never changed.
+        The Azure foundation rebuilt from zero and the committed stack config was still valid —
+        because <span class="mono">foundation.sh</span> derives its globally-unique names from a hash
+        of the subscription id, not a random suffix.</p>
+      </div>
+      <div class="phase done">
+        <h4>Phase 7 complete · the five-drill card <span class="pill ok">done</span> <span class="when">aug 18–27</span></h4>
+        <p><b>1 · failover under load:</b> 31s write gap, 8 failed requests of 124, zero rows lost — and a
+        graceful pod delete turned out to be a <i>switchover</i>, the "dead" primary serving for three more
+        minutes. <b>2 · migrations at scale:</b> the migration was a non-event; our own config caused a
+        nine-minute outage (an unpinned chart secret rotating mid-sync, anti-affinity deadlocking surge
+        rollouts). <b>3 · cache vs queue:</b> both textbook predictions inverted — the queue survived on AOF,
+        the "cache" returned hard 500s because sessions are load-bearing. <b>4 · restore with the app:</b>
+        a cascading delete undone by PITR in 35 seconds, the machine back in the running UI. <b>5 · rebuild:</b>
+        8.5 minutes destroy-to-converged, one manual step, and the database <i>born</i> from the previous
+        generation's archive — populate.sh found nothing to create but the new public IPs.</p>
+      </div>
+      <div class="phase done">
+        <h4>Barman Cloud Plugin migration <span class="pill ok">done</span> <span class="when">aug 28</span></h4>
+        <p>CNPG deletes in-tree <span class="mono">barmanObjectStore</span> in 1.31, so the destination moved
+        to an <span class="mono">ObjectStore</span> CR. Done as a birth rather than a migration — the cluster
+        was already destroyed — which was lucky, because three schema surprises and a silent race would each
+        have hit a live database mid-rollout. Verified on a real rebuild: archiving green, data recovered
+        <i>through</i> the plugin from an archive the old code wrote, and a plugin-method base backup landing
+        in blob.</p>
+      </div>
         <h4>Phase 8 · Talos comparison lab <span class="pill parked">planned</span></h4>
         <p>Rebuild on Talos Linux and judge it against kubeadm+Ubuntu (ADR 004).
         Deliberately after Phase 7: the interesting drill is rebuild-with-state, with real
@@ -717,9 +748,9 @@
 
 <footer class="site">
   <div class="wrap">
-    <p>Sources: <span class="mono">docs/PLAN.md</span>, <span class="mono">docs/decisions/ADR 001–009</span>,
-    <span class="mono">docs/journal/</span> (18 entries, 2026-07-13 → 2026-08-05).
-    Diagrams reflect the cluster as of the Azure migration, 2026-08-05 (ADR 009) — both postgres stacks running side by side on Azure.</p>
+    <p>Sources: <span class="mono">docs/PLAN.md</span>, <span class="mono">docs/decisions/ADR 001–011</span>,
+    <span class="mono">docs/journal/</span> (30 entries, 2026-07-13 → 2026-08-28).
+    Diagrams reflect the cluster as of 2026-08-28 (ADR 011): Azure eastus, 8 GiB workers on Premium SSD, CNPG backups via the Barman Cloud Plugin, both postgres stacks still running side by side.</p>
   </div>
 </footer>
 
