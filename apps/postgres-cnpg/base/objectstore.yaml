@@ -32,5 +32,8 @@ spec:
       compression: gzip
     data:
       compression: gzip
-  retentionPolicy:
-    retention: "7d"
+  # A STRING (pattern ^[1-9][0-9]*[dwm]$), not an object with a nested
+  # `retention:` key — the upstream migration guide shows the object form
+  # and the CRD rejects it: "spec.retentionPolicy in body must be of type
+  # string". Read the CRD, not the docs, when they disagree.
+  retentionPolicy: "7d"
