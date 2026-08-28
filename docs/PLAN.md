@@ -193,10 +193,12 @@ Depends on: storage (Phase 4 CSI/local-path), ingress + cert-manager
 (Phase 5), and ideally GitOps (ArgoCD) for the capstone.
 
 ### Open follow-ups (carried, not phases)
-- **Barman Cloud Plugin migration — has a deadline.** CNPG warns at apply
-  time that in-tree `barmanObjectStore` is REMOVED in 1.31. Every drill's
-  backup machinery depends on it, so this blocks any operator upgrade past
-  1.30. Cheapest moment is a healthy cluster, not a rebuild.
+- ✅ **Barman Cloud Plugin migration — DONE 2026-08-28** (journal). Plugin
+  v0.14.0 installed by platform.sh; destination lives in an ObjectStore CR;
+  Cluster keeps a `plugins:` reference. Verified on a live rebuild:
+  archiving green, data recovered THROUGH the plugin from an archive the
+  in-tree code wrote, and a `method: plugin` base backup completed. The
+  1.31 deadline is cleared and operator upgrades are unblocked.
 - **Blob/S3 generation sprawl.** `serverName` per rebuild (runbook 06 step
   1b) means dead generations accumulate and no retention policy prunes
   them: currently `pg`, `pg-20260825`, `pg-20260827`, `pg-gen3-20260827`,
