@@ -29,6 +29,13 @@ command -v jq >/dev/null || { echo "jq required" >&2; exit 1; }
 CP_PUB="$(jq -r '.[] | select(.role=="control-plane").publicIp' "$INV")"
 CP_PRIV="$(jq -r '.[] | select(.role=="control-plane").privateIp' "$INV")"
 WORKER_PUBS=$(jq -r '.[] | select(.role=="worker").publicIp' "$INV")
+# Every public IP, for certificate SANs. On Azure the public address is
+# NAT — the node never sees it on its own NIC — so nothing ends up in the
+# certs by default and talosctl/kubectl from the laptop fail TLS against
+# the public endpoint. Exactly the problem kubeadm solved with
+# --apiserver-cert-extra-sans in Phase 2, arriving again in Talos clothes.
+# Cost us a 10-minute bootstrap timeout before it was diagnosed.
+ALL_PUBS="$(jq -r '[.[].publicIp] | join(",")' "$INV")"
 
 echo "### Step 0: wait for the Talos API on every node (maintenance mode)"
 # The machines boot UNCONFIGURED and listen on 50000 waiting to be told
@@ -49,13 +56,18 @@ echo "### Step 1: generate machine configs"
 # cluster CA and secrets, exactly like kubeadm's PKI. Same rule as every
 # other credential in this project: local file, never git.
 mkdir -p "$OUT"
-if [ -f "$OUT/controlplane.yaml" ]; then
-  echo "  configs exist — reusing (delete $OUT to start a genuinely fresh cluster)"
+# Regenerate whenever the current control-plane public IP is not already a
+# SAN in the existing config: a rebuild hands out new public IPs, and stale
+# certs fail in a way (bootstrap timeout) that does not name its cause.
+if [ -f "$OUT/controlplane.yaml" ] && grep -q "$CP_PUB" "$OUT/controlplane.yaml"; then
+  echo "  configs exist and match the current IPs — reusing"
 else
+  [ -d "$OUT" ] && mv "$OUT" "$OUT.$(date +%s).bak"
   (umask 077 && talosctl gen config "$CLUSTER_NAME" "https://${CP_PRIV}:6443" \
     --output-dir "$OUT" \
+    --additional-sans "$ALL_PUBS" \
     --config-patch @"$REPO_ROOT/cluster-talos/patch-common.yaml" > /dev/null)
-  echo "  generated controlplane.yaml, worker.yaml, talosconfig"
+  echo "  generated controlplane.yaml, worker.yaml, talosconfig (SANs: $ALL_PUBS)"
 fi
 
 echo "### Step 2: apply config to the control plane"

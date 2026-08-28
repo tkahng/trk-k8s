@@ -10,10 +10,13 @@
 //  1. IMAGE: a managed image built from a factory VHD (infra/azure-talos/
 //     image.sh), not Canonical's marketplace offer. Talos publishes no
 //     Azure marketplace or community-gallery image at all.
-//  2. NO SSH: no adminUsername, no SSH key, no `sshUser`. Talos has no
-//     shell and no SSH daemon — the API on :50000 is the only way in.
-//     The inventory contract still CARRIES sshUser (see below) but it is
-//     now a lie the consumer must ignore.
+//  2. NO SSH — but Azure demands the paperwork anyway. Talos has no shell
+//     and no SSH daemon; the API on :50000 is the only way in. Yet Azure
+//     REFUSES to create a VM from a generalized managed image without an
+//     osProfile: "Required parameter 'osProfile' is missing (null)" (hit
+//     2026-08-28). So the machine is handed an admin username and a public
+//     key that nothing on it will ever read. The inventory contract's
+//     sshUser field is likewise carried and meaningless.
 //  3. NSG: port 50000/tcp for the Talos API, alongside 6443. Without it
 //     `talosctl` cannot reach a node and the cluster cannot be configured
 //     at all.
@@ -50,6 +53,8 @@ func main() {
 		myIP := cfg.Require("myIp")
 		// Built once by image.sh into the locked persistent group.
 		talosImageID := cfg.Require("talosImageId")
+		// Required by Azure, ignored by Talos. See the osProfile note below.
+		sshPublicKey := cfg.Require("sshPublicKey")
 
 		tags := pulumi.StringMap{
 			"cluster":   pulumi.String("trk-k8s-talos"),
@@ -183,11 +188,29 @@ func main() {
 						},
 					},
 				},
-				// NO OsProfile AT ALL. That block is where adminUsername,
-				// SSH keys and customData would live — Talos wants none of
-				// them, and Azure rejects an OsProfile whose credentials
-				// reference an image that has no cloud-init to consume them.
-				// The absence IS the porting lesson.
+				// Ceremonial. Talos has no /etc/passwd, no sshd, and no
+				// cloud-init to consume any of this — but Azure's control
+				// plane validates the REQUEST, not the image, and rejects a
+				// generalized-image VM with no osProfile. The key below is
+				// written to an authorized_keys file that will never exist.
+				// customData is deliberately omitted: that is where a machine
+				// config would go on first boot, and we want maintenance mode
+				// instead (see note 4 above).
+				OsProfile: &compute.OSProfileArgs{
+					ComputerName:  pulumi.String(n.name),
+					AdminUsername: pulumi.String("talos"),
+					LinuxConfiguration: &compute.LinuxConfigurationArgs{
+						DisablePasswordAuthentication: pulumi.Bool(true),
+						Ssh: &compute.SshConfigurationArgs{
+							PublicKeys: compute.SshPublicKeyTypeArray{
+								&compute.SshPublicKeyTypeArgs{
+									Path:    pulumi.String("/home/talos/.ssh/authorized_keys"),
+									KeyData: pulumi.String(sshPublicKey),
+								},
+							},
+						},
+					},
+				},
 				StorageProfile: &compute.StorageProfileArgs{
 					OsDisk: &compute.OSDiskArgs{
 						CreateOption: pulumi.String(compute.DiskCreateOptionTypesFromImage),

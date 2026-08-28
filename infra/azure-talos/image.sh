@@ -29,14 +29,27 @@ SCHEMATIC="${TALOS_SCHEMATIC:-376567988ad370138ad8b2698212367b8edcb69b5fd68c80be
 CONTAINER="talos-images"
 BLOB="talos-${TALOS_VERSION}-amd64.vhd"
 IMAGE_NAME="talos-${TALOS_VERSION}-amd64"
+# The gallery exists for ONE reason: a managed image built from a VHD is
+# SCSI-only, and every VM family we have quota for (D*_v7) is NVMe-ONLY.
+# Azure rejects the pairing with "cannot boot with OS image or disk ...
+# check disk controller types". A managed image has no way to declare NVMe
+# support; a GALLERY image definition does, via --features. So the gallery
+# is the bridge between a 2018-shaped disk image and 2026-shaped hardware.
+# (The SCSI-capable alternatives in eastus are all confidential-compute or
+# GPU families — every one of them at zero quota.)
+GALLERY="sigtrkk8s"
+IMAGE_DEF="talos"
+IMAGE_VER="${TALOS_VERSION#v}"
 LOCATION="${TRK_LOCATION:-eastus}"
 WORK="${TMPDIR:-/tmp}/trk-talos"
 
 echo "### Talos image ${TALOS_VERSION} -> Azure managed image '${IMAGE_NAME}'"
 
-if az image show -g "$TRK_RG_PERSIST" -n "$IMAGE_NAME" > /dev/null 2>&1; then
-  echo "  managed image already exists — nothing to do"
-  az image show -g "$TRK_RG_PERSIST" -n "$IMAGE_NAME" --query id -o tsv
+if az sig image-version show -g "$TRK_RG_PERSIST" -r "$GALLERY" \
+     -i "$IMAGE_DEF" -e "$IMAGE_VER" > /dev/null 2>&1; then
+  echo "  gallery image version already exists — nothing to do"
+  az sig image-version show -g "$TRK_RG_PERSIST" -r "$GALLERY" -i "$IMAGE_DEF" \
+    -e "$IMAGE_VER" --query id -o tsv
   exit 0
 fi
 
@@ -70,7 +83,25 @@ echo "  creating managed image from $BLOB_URL"
 az image create -g "$TRK_RG_PERSIST" -n "$IMAGE_NAME" --source "$BLOB_URL" \
   --os-type Linux --hyper-v-generation V2 -l "$LOCATION" --only-show-errors > /dev/null
 
-IMAGE_ID="$(az image show -g "$TRK_RG_PERSIST" -n "$IMAGE_NAME" --query id -o tsv)"
+echo "### publishing into a compute gallery (so the image can declare NVMe)"
+az sig create -g "$TRK_RG_PERSIST" --gallery-name "$GALLERY" -l "$LOCATION" \
+  --only-show-errors > /dev/null 2>&1 || true
+az sig image-definition create -g "$TRK_RG_PERSIST" --gallery-name "$GALLERY" \
+  --gallery-image-definition "$IMAGE_DEF" --publisher siderolabs --offer talos \
+  --sku amd64 --os-type Linux --hyper-v-generation V2 \
+  --features "DiskControllerTypes=SCSI,NVMe" -l "$LOCATION" \
+  --only-show-errors > /dev/null 2>&1 || true
+echo "  image definition ready (DiskControllerTypes=SCSI,NVMe)"
+
+MANAGED_ID="$(az image show -g "$TRK_RG_PERSIST" -n "$IMAGE_NAME" --query id -o tsv)"
+echo "  creating gallery image version $IMAGE_VER (a few minutes)"
+az sig image-version create -g "$TRK_RG_PERSIST" --gallery-name "$GALLERY" \
+  --gallery-image-definition "$IMAGE_DEF" --gallery-image-version "$IMAGE_VER" \
+  --managed-image "$MANAGED_ID" -l "$LOCATION" \
+  --target-regions "$LOCATION" --replica-count 1 --only-show-errors > /dev/null
+
+IMAGE_ID="$(az sig image-version show -g "$TRK_RG_PERSIST" -r "$GALLERY" \
+  -i "$IMAGE_DEF" -e "$IMAGE_VER" --query id -o tsv)"
 echo ""
 echo "### done. Set this as the stack's talosImageId:"
 echo "  $IMAGE_ID"
