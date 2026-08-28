@@ -269,10 +269,11 @@
 </style>
 
 <div class="wrap">
-  <p class="eyebrow">trk-k8s · phase 7.5 → phase 8</p>
-  <h1>The database that describes its own cluster</h1>
-  <p class="lede">NetBox is an infrastructure inventory. Ours now holds <strong>1 site, 1 cluster, 3 VMs, 4 prefixes, 6 IPs</strong> — the records of the very machines it runs on. That self-reference is the point: every drill below breaks something the database itself depends on, and "recovery" means those records come back.</p>
-  <p class="lede">Three loops keep it alive — <strong>traffic</strong> (you → Gateway → NetBox → Postgres), <strong>reconcile</strong> (git → Argo CD → everything), <strong>durability</strong> (Postgres → S3). Each drill attacks a different loop. Click through to see how the picture changes.</p>
+  <p class="eyebrow">trk-k8s · phase 7 complete · five drills, five journals</p>
+  <h1>The database that describes its own cluster — and survived being destroyed</h1>
+  <p class="lede">NetBox is an infrastructure inventory, and ours holds the records of the very machines it runs on — site, cluster, VMs, prefixes, IPs, all discovered from the live cluster rather than typed. That self-reference is the point: every drill breaks something the database itself depends on, and "recovery" means those records come back.</p>
+  <p class="lede">Three loops keep it alive — <strong>traffic</strong> (you → Gateway → NetBox → Postgres), <strong>reconcile</strong> (git → Argo CD → everything), <strong>durability</strong> (Postgres → Azure Blob). Each drill attacked a different loop. <strong>All five passed; the database never lost a committed row.</strong> Click a drill for what actually happened.</p>
+  <p class="lede" style="border-left:3px solid var(--accent); padding-left:14px; margin-top:16px;">The finding none of them were designed to produce: <strong>the cluster was almost never the problem.</strong> Every serious outage traced back to configuration or to the tools built to observe and deploy it — an unpinned secret, a lying resource request, a harness that measured nothing and reported numbers.</p>
 
   <div class="tabs" role="group" aria-label="Drill selector">
     <button class="tab" data-state="d0" aria-pressed="true"><span class="n">0</span>today</button>
@@ -280,7 +281,7 @@
     <button class="tab" data-state="d2" aria-pressed="false"><span class="n">2</span>migrations ×3</button>
     <button class="tab" data-state="d3" aria-pressed="false"><span class="n">3</span>cache vs queue</button>
     <button class="tab" data-state="d4" aria-pressed="false"><span class="n">4</span>restore with app</button>
-    <button class="tab" data-state="d5" aria-pressed="false"><span class="n">5</span>full rebuild</button>
+    <button class="tab" data-state="d5" aria-pressed="false"><span class="n">5</span>rebuild from git + blob</button>
   </div>
 
   <div class="legend">
@@ -323,7 +324,7 @@
     <!-- cluster boundary -->
     <g id="clusterbox" class="zone">
       <rect x="24" y="112" width="952" height="434"></rect>
-      <text x="44" y="134" class="t-zone">KUBERNETES · aws us-east-1 · 3× t3a.medium · kubeadm + cilium</text>
+      <text x="44" y="134" class="t-zone">KUBERNETES · azure eastus · cp D2als_v7 + 2× D4als_v7 · premium disks · kubeadm + cilium</text>
     </g>
 
     <g id="gateway" class="box">
@@ -414,8 +415,8 @@
     <!-- s3, outside the cluster -->
     <g id="s3" class="box">
       <rect x="616" y="586" width="340" height="56"></rect>
-      <text x="632" y="609" class="t-main">s3://trk-k8s-pg-backups</text>
-      <text x="632" y="627" class="t-sub">WAL archive · base backups ×6h · versioned</text>
+      <text x="632" y="609" class="t-main">blob: pg-backups (locked RG)</text>
+      <text x="632" y="627" class="t-sub">barman plugin · WAL + base ×6h · one prefix per generation</text>
     </g>
 
     <!-- arrows -->
@@ -434,7 +435,7 @@
     <path id="a-repl" class="arrow" d="M726,428 L744,428"></path>
     <text x="736" y="446" class="t-lbl" text-anchor="middle" transform="rotate(0)">repl</text>
     <path id="a-wal" class="arrow" d="M631,458 L631,584"></path>
-    <text x="643" y="530" class="t-lbl">WAL + base backups</text>
+    <text x="643" y="530" class="t-lbl">WAL + base (plugin)</text>
     <path id="a-pitr" class="arrow hot hidden" d="M956,614 L988,614 L988,298 L938,298"></path>
     <text id="l-pitr" x="984" y="286" class="t-lbl hidden" text-anchor="end">PITR: base + WAL replay</text>
     <path id="a-repoint" class="arrow hot hidden" d="M186,298 L744,298"></path>
@@ -446,138 +447,138 @@
 
   <section class="panel" data-panel="d0">
     <h2>0 · Today — the healthy baseline</h2>
-    <p class="delta">Diagram: everything quiet. <b>pg-1</b> wears the PRIMARY badge; pods 2 and 3 are dashed because they don't exist yet.</p>
+    <p class="delta">Diagram: everything quiet. <b>pg-1</b> wears the PRIMARY badge; pods 2 and 3 are dashed because the cluster proved it can't host them.</p>
     <div class="pgrid">
       <div class="pblock">
         <h3>Traffic loop</h3>
-        <p>Cloudflare resolves <code>netbox.k8s.kahng.dev</code> to a node; Envoy terminates TLS and routes to the NetBox pod, which talks SQL through the pooler to whichever instance is primary.</p>
+        <p>Cloudflare resolves <code>netbox.k8s.kahng.dev</code> to a node; Envoy terminates TLS and routes to a NetBox pod, which talks SQL through the pooler to whichever instance is primary.</p>
       </div>
       <div class="pblock">
         <h3>Reconcile loop</h3>
-        <p>Argo CD watches git and keeps six Applications Synced/Healthy. Nothing in the cluster is hand-applied; if you edit live state, selfHeal puts it back.</p>
+        <p>Argo CD watches git and keeps six Applications Synced/Healthy. Nothing is hand-applied — and drill 2 found the sharp edge: a child Application's spec is <em>root's</em> data, so pausing a child alone is reverted within seconds.</p>
       </div>
       <div class="pblock">
         <h3>Durability loop</h3>
-        <p>Every closed WAL segment ships to S3; a base backup lands every 6 hours. RPO = the currently-open segment, measured on two clouds.</p>
+        <p>Every closed WAL segment ships to Azure Blob via the <strong>Barman Cloud Plugin</strong> (migrated 08-28, ahead of CNPG 1.31 deleting the in-tree path). Base backups every 6h. RPO: the currently-open segment.</p>
       </div>
       <div class="pblock">
-        <h3>Why the drills matter now</h3>
-        <p>The database finally holds data you'd mind losing — the cluster's own records. Each drill kills one box above and asks: do those six IPs come back?</p>
+        <h3>What the card proved</h3>
+        <p>Five drills, five journals. The database never lost a committed row. Every serious outage came from configuration or tooling — not from Postgres, and not from Kubernetes.</p>
       </div>
     </div>
   </section>
 
   <section class="panel" data-panel="d1" hidden>
-    <h2>1 · Failover under load</h2>
-    <p class="delta">Diagram: <b>pg-1 goes red</b>, the PRIMARY badge jumps to <b>pg-2</b>, pooler and NetBox run amber while the load chip hammers the front door.</p>
+    <h2>1 · Failover under load <span style="color:var(--green)">· passed</span></h2>
+    <p class="delta">Result: <b>31.1s write gap · 8 failed requests of ~124 · zero rows lost</b></p>
     <div class="pgrid">
       <div class="pblock fire">
-        <h3>You fire</h3>
-        <p><code>kubectl -n postgres-cnpg delete pod pg-1</code> — while a load generator holds sustained requests against NetBox. I set up the load and the watchers first.</p>
+        <h3>Fired</h3>
+        <p><code>kubectl delete pod pg-1</code> — the primary — under 4 req/s of API load, with a probe writing a timestamped row every 500ms.</p>
       </div>
       <div class="pblock">
-        <h3>What happens</h3>
-        <p>The CNPG operator notices the lost primary and promotes pg-2 — a <em>centralized</em> decision, unlike Patroni's self-managed election from 7.3. The pooler's rw endpoint follows the badge.</p>
+        <h3>The surprise</h3>
+        <p>The "dead" primary kept accepting writes for <strong>three more minutes</strong>. A graceful delete is a <em>switchover</em>: CNPG uses the termination grace to run an orderly handover. A real crash test needs <code>--grace-period=0</code> or a lost node.</p>
       </div>
       <div class="pblock">
-        <h3>Watch</h3>
-        <p>HTTP error rate on the load tool, <code>kubectl cnpg status pg</code>, and the pooler repointing. Expect a seconds-long window of failed writes, then silence.</p>
+        <h3>The pooler earned its keep</h3>
+        <p>124 requests entered a 31-second window with no writable database; 116 succeeded. PgBouncer holds clients rather than refusing them, then replays onto the new primary.</p>
       </div>
       <div class="pblock">
-        <h3>Healthy again when</h3>
-        <p>pg-1 rejoins as the replica (its PVC survived, so no re-clone needed), object counts are unchanged, and zero rows were lost — the pod died, the disk didn't.</p>
+        <h3>Versus Patroni (7.3)</h3>
+        <p>No election, no split-brain window to reason about: the operator decided, and the PRIMARY label moved exactly once. Centralized promotion, measured under load.</p>
       </div>
     </div>
   </section>
 
   <section class="panel" data-panel="d2" hidden>
-    <h2>2 · Migrations at replicaCount: 3</h2>
-    <p class="delta">Diagram: <b>pods 2 and 3 solidify</b> — NetBox becomes three identical webs sharing one schema, and pg-1 runs amber while DDL takes locks.</p>
+    <h2>2 · Migrations at scale <span style="color:var(--amber)">· passed, expensively</span></h2>
+    <p class="delta">Result: <b>migration innocent · 2,145 failed requests from our own config · 14× better after fixes</b></p>
     <div class="pgrid">
       <div class="pblock fire">
-        <h3>You fire</h3>
-        <p>A git commit: <code>replicaCount: 3</code> plus a NetBox version bump in <code>netbox.yaml</code>. Argo CD does the rest — no kubectl.</p>
+        <h3>Fired</h3>
+        <p>Two git commits: scale the web tier up, then upgrade the chart 8.3.46 → 8.3.57 (app v4.6.7 → v4.6.8) while pods served traffic.</p>
       </div>
       <div class="pblock">
-        <h3>What happens</h3>
-        <p>The upgrade runs schema migrations while three pods serve. For a window, old code runs against new schema (or the reverse) — the classic many-apps-one-database problem, staged deliberately.</p>
+        <h3>The migration was a non-event</h3>
+        <p>Applied exactly once, no observable lock contention at 3-second sampling. Django's own locking made the second pod's attempt a no-op. The feared part was free.</p>
       </div>
       <div class="pblock">
-        <h3>Watch</h3>
-        <p>Migration locks in <code>pg_stat_activity</code>, rolling-update order, and whether any request 500s mid-roll. Migrations must apply exactly once, not once per pod.</p>
+        <h3>The delivery machinery was not</h3>
+        <p>An unpinned chart secret (Valkey's password) <strong>rotated mid-sync</strong>, breaking every running pod's cache auth; and hard anti-affinity + surge rollouts <strong>deadlock</strong> when replicas equal nodes. Nine minutes of 500s, from two bugs of ours.</p>
       </div>
       <div class="pblock">
-        <h3>Healthy again when</h3>
-        <p>3/3 pods Ready on the new version, one clean migration history, no dropped requests you can't explain.</p>
+        <h3>Bonus: the scheduler lesson</h3>
+        <p>Scaling first killed a node outright. A memory <em>request</em> is a promise to the scheduler, and ours lied by 1GB — so it packed two booting pods onto one worker until its kubelet went silent. Requests now match reality; workers went 4→8&nbsp;GB.</p>
       </div>
     </div>
   </section>
 
   <section class="panel" data-panel="d3" hidden>
-    <h2>3 · Cache vs queue — kill Valkey</h2>
-    <p class="delta">Diagram: <b>Valkey goes red</b>; NetBox web and worker run amber for different reasons — that difference is the whole lesson.</p>
+    <h2>3 · Cache vs queue <span style="color:var(--green)">· both predictions wrong</span></h2>
+    <p class="delta">Result: <b>22s of hard 500s · 62 failed requests · 5 of 5 queued jobs survived</b></p>
     <div class="pgrid">
       <div class="pblock fire">
-        <h3>You fire</h3>
-        <p><code>kubectl -n netbox delete pod netbox-valkey-primary-0</code>. It's standalone by deliberate choice — no replica to save us.</p>
+        <h3>Fired</h3>
+        <p><code>kubectl delete pod netbox-valkey-primary-0</code>, with five RQ jobs planted in the queue as bodies to count afterwards.</p>
       </div>
       <div class="pblock">
-        <h3>What happens</h3>
-        <p>Two very different losses from one pod: the <strong>cache</strong> is rebuildable — pages go slower until it re-warms. The <strong>queue</strong> is not — RQ jobs in flight (webhooks, reports) are simply gone.</p>
+        <h3>The queue survived</h3>
+        <p>Expected total loss; got zero. Bitnami's Valkey ships <strong>appendonly on a PVC</strong>, and a StatefulSet pod returns as itself — the AOF replayed. The real RPO is ~1 second, not "the pod's lifetime".</p>
       </div>
       <div class="pblock">
-        <h3>Watch</h3>
-        <p>Page latency (cache misses), worker logs (which jobs vanished), and whether NetBox errors or merely degrades. Enqueue a job before firing so there's something to lose.</p>
+        <h3>The cache did not degrade</h3>
+        <p>NetBox returned <strong>500 for every request</strong> while Valkey was down — sessions and config caching are load-bearing. "It's just a cache" is false for this app. And on return, latency was instantly normal: the feared re-warm is a ghost at lab scale.</p>
       </div>
       <div class="pblock">
-        <h3>Healthy again when</h3>
-        <p>Valkey is back, latency normal, queues draining — and you can name exactly which work was lost. "Stateless" dependencies rarely are.</p>
+        <h3>The hierarchy</h3>
+        <p>Pod killed: 22s, self-healing, zero hands. Password rotated (drill 2): 9 minutes, all pods, manual twice. <strong>Infrastructure death is cheaper than configuration betrayal.</strong></p>
       </div>
     </div>
   </section>
 
   <section class="panel" data-panel="d4" hidden>
-    <h2>4 · Restore with the app attached</h2>
-    <p class="delta">Diagram: a <b>new pg-restore cluster appears, fed from S3</b> (the teal PITR path); the old cluster fades and NetBox's SQL line swings over to the restored database.</p>
+    <h2>4 · Restore with the app attached <span style="color:var(--green)">· passed</span></h2>
+    <p class="delta">Result: <b>35s recovery · deleted machine back in the running app · post-target writes correctly absent</b></p>
     <div class="pgrid">
       <div class="pblock fire">
-        <h3>You fire</h3>
-        <p>An "oops" first — delete a real VM record in NetBox and note the time. Then apply a recovery <code>Cluster</code> bootstrapped from <code>barmanObjectStore</code> with a <code>recoveryTarget</code> just before the oops.</p>
+        <h3>Fired</h3>
+        <p>A real oops at 23:51:34 — <code>DELETE</code> the <code>k8s-worker-2</code> VM record, cascading to its interface and both IPs. Recovery target set four seconds earlier.</p>
       </div>
       <div class="pblock">
-        <h3>What happens</h3>
-        <p>CNPG pulls the nearest base backup from S3 and replays WAL up to the target — the 7.4 restore drill, but this time an application must come back with its data, not just a psql prompt.</p>
+        <h3>What recovery proved</h3>
+        <p>Base backup + WAL replay rebuilt the database in <strong>35 seconds</strong>. The deleted machine existed again; a table written <em>after</em> the target did not. Point-in-time means point-in-time.</p>
       </div>
       <div class="pblock">
-        <h3>Watch</h3>
-        <p>Recovery logs on the new cluster, then NetBox after its DB host secret is repointed. The deleted record must exist again; anything written <em>after</em> the target must not.</p>
+        <h3>The part restore stories skip</h3>
+        <p>Living on the side-cluster isn't recovery. NetBox was repointed <em>back</em> to the canonical database and its hole healed by re-running populate — idempotently recreating exactly what was missing.</p>
       </div>
       <div class="pblock">
-        <h3>Healthy again when</h3>
-        <p>Counts match the pre-oops state, NetBox serves from the restored cluster, and the new cluster is archiving WAL to S3 again — restore that doesn't resume backups isn't done.</p>
+        <h3>The blocker it exposed</h3>
+        <p>Preflight found archiving silently OFF: CNPG refuses to write into a dead generation's prefix ("Expected empty archive") while every app stays green. <strong>Earlier rebuilds had run with no backups at all.</strong></p>
       </div>
     </div>
   </section>
 
   <section class="panel" data-panel="d5" hidden>
-    <h2>5 · Full rebuild from git + S3</h2>
-    <p class="delta">Diagram: <b>everything inside the cluster boundary dims</b>. Only three boxes stay lit — GitHub, S3, and the laptop's secret files. That's the entire recovery kit.</p>
+    <h2>5 · Rebuild from git + blob <span style="color:var(--green)">· the thesis</span></h2>
+    <p class="delta">Result: <b>8.5 min destroy-to-converged · 1 manual step · the database was BORN holding its data</b></p>
     <div class="pgrid">
       <div class="pblock fire">
-        <h3>You fire</h3>
-        <p><code>make destroy</code>, then the full bring-up: <code>make up</code> → <code>bootstrap</code> → <code>platform</code>, repoint the Cloudflare A record, run <code>populate.sh</code>.</p>
+        <h3>Fired</h3>
+        <p><code>make destroy</code>, then a timed harness: <code>up</code> (88s) → <code>bootstrap</code> (140s) → <code>platform</code> (~142s) → six apps converged (141s).</p>
       </div>
       <div class="pblock">
-        <h3>What happens</h3>
-        <p>Nodes, PVCs, pods — all gone. Git re-creates the <em>platform</em> (Argo CD converges six apps hands-off). S3 re-creates the <em>data</em> (recovery bootstrap). The laptop re-seeds the secrets, and populate.sh self-heals its own API token.</p>
+        <h3>Data survival, not rediscovery</h3>
+        <p>The new cluster bootstrapped <strong>from the previous generation's archive</strong>. <code>populate.sh</code> — which creates anything it can't find — created nothing but the three new public IPs. Site, cluster, prefixes, VMs: already there.</p>
       </div>
       <div class="pblock">
-        <h3>Watch</h3>
-        <p>How little you type. Every manual step you catch yourself doing is a gap in git, the Makefile, or platform.sh — the drill's real output is that list.</p>
+        <h3>The quiet proof</h3>
+        <p>No token had to be minted: the API token in <code>~/.config/trk-k8s</code> still matched the row restored from blob. Two independent survival paths agreeing across total infrastructure loss.</p>
       </div>
       <div class="pblock">
-        <h3>Healthy again when</h3>
-        <p>Six apps Synced/Healthy, NetBox reachable at its name, and the same counts — 1 site, 3 VMs, 4 prefixes, 6 IPs — on brand-new machines. Cluster as cattle, proven end to end.</p>
+        <h3>Three attempts, three instrument bugs</h3>
+        <p>The harness measured a no-op and reported numbers; died before printing its own scorecard; then blocked on stdin that wasn't there. <strong>The instrument failed three times; the system under test failed zero.</strong></p>
       </div>
     </div>
   </section>
@@ -587,22 +588,22 @@
     <div class="rungs">
       <div class="rung">
         <div class="who">pods</div>
-        <div class="dies">die constantly · drills 1–3 live here</div>
+        <div class="dies">die constantly · drills 1–3 · worst case 31s, self-healing</div>
       </div>
       <div class="sep">&lt;</div>
       <div class="rung">
         <div class="who">PVCs / node disks</div>
-        <div class="dies">die with their node, or drill 4's cluster swap</div>
+        <div class="dies">die with the node — but Valkey's AOF made the queue survive a pod (drill 3)</div>
       </div>
       <div class="sep">&lt;</div>
       <div class="rung">
         <div class="who">the cluster</div>
-        <div class="dies">dies at <span style="font-family:var(--mono)">make destroy</span> · drill 5</div>
+        <div class="dies">dies at <span style="font-family:var(--mono)">make destroy</span> · rebuilt in 8.5 min, 1 manual step</div>
       </div>
       <div class="sep">&lt;</div>
       <div class="rung last">
-        <div class="who">git + S3 + laptop files</div>
-        <div class="dies">survived even the account suspension (ADR 010)</div>
+        <div class="who">git + blob + laptop files</div>
+        <div class="dies">the recovery kit. Survived an AWS account suspension (ADR 010) and every destroy since — drill 5's database was <em>born</em> from it</div>
       </div>
     </div>
   </div>
