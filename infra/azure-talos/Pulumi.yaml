@@ -1,0 +1,3 @@
+name: trk-k8s-azure-talos
+runtime: go
+description: Phase 8 — machine provisioning on Azure for the Talos Linux comparison cluster

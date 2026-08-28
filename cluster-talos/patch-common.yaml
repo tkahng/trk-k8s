@@ -1,0 +1,44 @@
+# Machine-config patch applied to BOTH roles at generation time.
+#
+# This file is the Talos equivalent of a pile of things that were spread
+# across kubeadm flags, prep-node.sh, and Cilium helm values. Everything
+# here is declarative and lands before first boot — which is the whole
+# argument for Talos, stated in YAML.
+cluster:
+  network:
+    # Same address plan as every other cluster this project has built.
+    podSubnets:
+      - 10.244.0.0/16
+    serviceSubnets:
+      - 10.96.0.0/12
+    cni:
+      # NONE: we install Cilium ourselves, exactly as on kubeadm. Talos
+      # would otherwise install Flannel, and the whole Phase 6.5 stack
+      # (eBPF kube-proxy replacement, Gateway API) assumes Cilium.
+      name: none
+  proxy:
+    # kube-proxy off for the same reason it is off on kubeadm: Cilium's
+    # eBPF replacement handles Services (ADR 005). On kubeadm this took a
+    # skipPhases flag at init plus a values change; here it is one bool.
+    disabled: true
+machine:
+  install:
+    # Azure surfaces the OS disk as /dev/sda. Talos writes itself there on
+    # first apply-config and reboots into the installed system.
+    disk: /dev/sda
+  kubelet:
+    extraMounts:
+      # THE storage lesson of the phase, predicted in PLAN.md and encoded
+      # here before it can bite: Talos's filesystem is immutable, and
+      # local-path-provisioner defaults to writing under /opt — which is
+      # read-only. /var is the only writable area, so the kubelet gets an
+      # explicit bind mount and local-path is pointed at it. On Ubuntu this
+      # entire problem does not exist, which is precisely the trade Talos
+      # is making: nothing is writable unless you say so.
+      - destination: /var/mnt/local-path
+        type: bind
+        source: /var/mnt/local-path
+        options:
+          - bind
+          - rshared
+          - rw

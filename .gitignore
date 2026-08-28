@@ -2,6 +2,8 @@
 infra/aws/aws
 infra/aws-persistent/aws-persistent
 infra/hetzner/hetzner
+infra/azure/azure
+infra/azure-talos/azure-talos
 
 # Pulumi local plugin/log noise
 .pulumi/
@@ -10,3 +12,4 @@ infra/hetzner/hetzner
 *.env
 kubeconfig*
 infra/azure/azure
+kubeconfig-talos
