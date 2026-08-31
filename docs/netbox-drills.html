@@ -269,7 +269,7 @@
 </style>
 
 <div class="wrap">
-  <p class="eyebrow">trk-k8s · phase 7 complete · five drills, five journals</p>
+  <p class="eyebrow">trk-k8s · phases 7–8 complete · the data outlived the operating system</p>
   <h1>The database that describes its own cluster — and survived being destroyed</h1>
   <p class="lede">NetBox is an infrastructure inventory, and ours holds the records of the very machines it runs on — site, cluster, VMs, prefixes, IPs, all discovered from the live cluster rather than typed. That self-reference is the point: every drill breaks something the database itself depends on, and "recovery" means those records come back.</p>
   <p class="lede">Three loops keep it alive — <strong>traffic</strong> (you → Gateway → NetBox → Postgres), <strong>reconcile</strong> (git → Argo CD → everything), <strong>durability</strong> (Postgres → Azure Blob). Each drill attacked a different loop. <strong>All five passed; the database never lost a committed row.</strong> Click a drill for what actually happened.</p>
@@ -603,7 +603,7 @@
       <div class="sep">&lt;</div>
       <div class="rung last">
         <div class="who">git + blob + laptop files</div>
-        <div class="dies">the recovery kit. Survived an AWS account suspension (ADR 010) and every destroy since — drill 5's database was <em>born</em> from it</div>
+        <div class="dies">the recovery kit. Survived an AWS account suspension, every destroy, and finally the OS itself — Phase 8 restored this database onto Talos from the archive the last kubeadm cluster wrote</div>
       </div>
     </div>
   </div>

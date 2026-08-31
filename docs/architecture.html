@@ -735,12 +735,21 @@
         <i>through</i> the plugin from an archive the old code wrote, and a plugin-method base backup landing
         in blob.</p>
       </div>
-        <h4>Phase 8 · Talos comparison lab <span class="pill parked">planned</span></h4>
-        <p>Rebuild on Talos Linux and judge it against kubeadm+Ubuntu (ADR 004).
-        Deliberately after Phase 7: the interesting drill is rebuild-with-state, with real
-        Postgres data at stake. Not a provider swap — no SSH means the whole
-        <span class="mono">cluster/</span> layer becomes machine configs +
-        <span class="mono">talosctl</span>; <span class="mono">infra/</span> survives unchanged.</p>
+        <h4>Phase 8 · Talos comparison lab <span class="pill ok">done</span> <span class="when">aug 28–31</span></h4>
+        <p>The judgment ADR 004 deferred, earned the hard way. <b>Session A</b> (bootstrap
+        without SSH, apt, or kubeadm) falsified PLAN's "infra survives unchanged" — Azure has no
+        Talos image at all (factory VHD → page blob → Compute Gallery, the only way to declare
+        NVMe support for v7-family hardware), demands a ceremonial <span class="mono">osProfile</span>
+        for an OS with no users, and one timeout symptom hid THREE different causes across three
+        failed runs: missing cert SANs, a flip-flopping admin IP, and talosctl's fixed ~10s dial
+        deadline (escaped via a one-shot ACI container inside the VNet). <b>Session B</b>: Cilium
+        via KubePrism first try — the provider-specific <span class="mono">k8sServiceHost</span>
+        wart simply dissolves — then the payoff: <b>the NetBox database restored on Talos from the
+        archive the final kubeadm cluster wrote</b>, exact counts, archiving resumed. The data
+        outlived the cluster, the OS, and the bootstrap method. <b>Verdict (ADR 012)</b>: kubeadm
+        shows you Kubernetes; Talos hides Linux. kubeadm stays primary — this project's purpose is
+        legibility — with the Talos lab kept as the migration target if the cluster ever needs to
+        simply stay up rather than teach.</p>
       </div>
     </div>
   </div>
@@ -748,9 +757,9 @@
 
 <footer class="site">
   <div class="wrap">
-    <p>Sources: <span class="mono">docs/PLAN.md</span>, <span class="mono">docs/decisions/ADR 001–011</span>,
-    <span class="mono">docs/journal/</span> (30 entries, 2026-07-13 → 2026-08-28).
-    Diagrams reflect the cluster as of 2026-08-28 (ADR 011): Azure eastus, 8 GiB workers on Premium SSD, CNPG backups via the Barman Cloud Plugin, both postgres stacks still running side by side.</p>
+    <p>Sources: <span class="mono">docs/PLAN.md</span>, <span class="mono">docs/decisions/ADR 001–012</span>,
+    <span class="mono">docs/journal/</span> (32 entries, 2026-07-13 → 2026-08-31).
+    Diagrams reflect the kubeadm cluster as of 2026-08-28 (ADR 011): Azure eastus, 8 GiB workers on Premium SSD, CNPG backups via the Barman Cloud Plugin. Phases 1–8 complete; the era ends with the Sept 4 teardown-to-zero, and the AWS return is staged as a resume.</p>
   </div>
 </footer>
 

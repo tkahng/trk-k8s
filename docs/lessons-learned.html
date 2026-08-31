@@ -194,6 +194,7 @@
     <a href="#migration">Changing clouds</a>
     <a href="#ha">Postgres HA</a>
     <a href="#drills">The five drills</a>
+    <a href="#talos">Talos</a>
     <a href="#craft">Operator craft</a>
   </div>
 </nav>
@@ -1215,13 +1216,98 @@
   </div>
 </section>
 
+<!-- ============ TALOS ============ -->
+<section id="talos">
+  <div class="wrap">
+    <h2>Talos — swapping the operating system</h2>
+    <p class="section-sub">Phase 8: the same cluster on an OS with no shell, no SSH, and no package manager. The comparison ADR 004 deferred, run with real data at stake.</p>
+    <div class="lessons">
+      <div class="lesson">
+        <div class="claim">The seam absorbs a cloud swap completely — and a distribution swap only partly.</div>
+        <div class="story">Three cloud swaps never touched <span class="mono">cluster/</span>; the OS swap
+        replaced it wholesale AND falsified the plan's "infra survives unchanged" claim: a scripted image
+        pipeline, a ceremonial osProfile, port 50000 for 22, and <span class="mono">sshUser</span> demoted to a
+        carried lie. The parts of infra that describe <em>what a machine is</em> belong to the OS, not the cloud.</div>
+        <div class="src"><span>aug 28 · phase 8</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Azure validates the request, not the image.</div>
+        <div class="story">A generalized-image VM is refused without an <span class="mono">osProfile</span> —
+        so Talos, which has no <span class="mono">/etc/passwd</span>, no password auth and no sshd, must be
+        handed an admin username and an SSH key that are written to an authorized_keys file that will never
+        exist. Required fields for a machine that cannot read them.</div>
+        <div class="src"><span>aug 28 · phase 8</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">A VHD-built managed image is SCSI-only; 2026 VM families are NVMe-only. The Compute Gallery is the bridge.</div>
+        <div class="story">"Cannot boot with OS image or disk" — and no escape hatch: every SCSI-capable size
+        in eastus with quota was confidential-compute or GPU, all at zero quota. Only a gallery image
+        definition can declare <span class="mono">DiskControllerTypes=SCSI,NVMe</span>. A 2018-shaped disk
+        image meeting 2026-shaped hardware, with the gallery as adapter.</div>
+        <div class="src"><span>aug 28 · phase 8</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">One symptom can have three consecutive different causes — and every fix be real yet insufficient.</div>
+        <div class="story">Three bootstrap runs died on the identical timeout: first missing cert SANs
+        (Phase 2's <span class="mono">--apiserver-cert-extra-sans</span> in Talos clothes), then the admin IP
+        flip-flopping mid-run, then talosctl's fixed ~10s dial deadline meeting a 10.05s mTLS handshake —
+        the gRPC trace showed the connection reaching READY at the exact moment the deadline canceled it.
+        The diagnosis ORDER is now runbook 08's most valuable section.</div>
+        <div class="src"><span>aug 28–31 · runbook 08</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">When the client is the problem, move the client.</div>
+        <div class="story">talosctl exposes no timeout knob, and the slow handshake was this laptop's network
+        path, not the cluster. A one-shot ACI container in a delegated subnet ran talosctl over the clean
+        intra-VNet path against the node's private IP — etcd bootstrapped first try from there. The jump
+        subnet is now part of the Pulumi program.</div>
+        <div class="src"><span>aug 31 · phase 8</span><span class="pill observed">observed</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">KubePrism dissolves the one provider-specific wart in the Cilium install.</div>
+        <div class="story">With kube-proxy gone, kubeadm-era Cilium needed <span class="mono">k8sServiceHost</span>
+        injected per-provider from the inventory. Talos ships a host-local apiserver load balancer on
+        <span class="mono">localhost:7445</span>, on by default — the value becomes a constant that works on
+        any provider. Nodes went Ready on the first attempt.</div>
+        <div class="src"><span>aug 31 · phase 8</span><span class="pill observed">observed</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">kubeadm enforced no Pod Security at all — a fact invisible until Talos.</div>
+        <div class="story">Talos enforces PSS <span class="mono">baseline</span> cluster-wide by default;
+        local-path's hostPath helper pod was refused outright, needing an explicitly privileged namespace.
+        Third invisible-on-Ubuntu default surfaced in one session, after the immutable
+        <span class="mono">/opt</span> and the missing kube-proxy VIP. Secure-by-default reaches the
+        Kubernetes layer, not just the OS.</div>
+        <div class="src"><span>aug 31 · phase 8</span><span class="pill bitten">bitten</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">The data outlived the operating system and the bootstrap method.</div>
+        <div class="story">A Postgres born on a Talos node from the archive the final kubeadm cluster wrote:
+        3 VMs, 9 IPs, 4 prefixes, exact — with archiving resumed under a fresh generation. The restored
+        inventory describes the Ubuntu machines from a database running on Talos ones. Every piece of backup
+        machinery the project built (WAL archiving, generations, the plugin migration) was, in the end, for
+        this sentence.</div>
+        <div class="src"><span>aug 31 · phase 8</span><span class="pill observed">observed</span></div>
+      </div>
+      <div class="lesson">
+        <div class="claim">Talos moves failure from bring-up time to image time — and the verdict follows from what you value.</div>
+        <div class="story">It deleted prep-node.sh, the apt-mirror lottery, and the SSH race (each a real
+        historical failure here); it charged an image pipeline, a gallery bridge, and three days of bootstrap
+        debugging. Failures moved from random-at-bring-up to deterministic-at-image-time. ADR 012: kubeadm
+        shows you Kubernetes; Talos hides Linux — and this project exists to see, so kubeadm stays primary.</div>
+        <div class="src"><span>aug 31 · ADR 012</span><span class="pill observed">observed</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
 
 <footer class="site">
   <div class="wrap">
-    <p>Distilled from <span class="mono">docs/journal/</span> (30 entries, 2026-07-13 → 2026-08-28)
-    and <span class="mono">docs/decisions/</span> (ADR 001–011). Companion page:
+    <p>Distilled from <span class="mono">docs/journal/</span> (32 entries, 2026-07-13 → 2026-08-31)
+    and <span class="mono">docs/decisions/</span> (ADR 001–012). Companion page:
     <span class="mono">docs/architecture.html</span> — the diagrams these lessons were earned on.
-    Current as of 2026-08-28. Phase 7 is complete — Postgres from a single StatefulSet to an operator-run cluster with point-in-time recovery, closed out by the five-drill card. Phase 8 (the Talos comparison) opens from here.</p>
+    Current as of 2026-08-31. Phases 1–8 complete: Postgres from a single StatefulSet to an operator-run cluster whose data outlived the operating system, and a Talos comparison with a written verdict (ADR 012). The Azure era ends with the Sept 4 teardown-to-zero.</p>
   </div>
 </footer>
 
