@@ -579,6 +579,14 @@
     </table></div>
   </section>
 
+  <div class="thesis" style="margin-bottom:18px">
+    <p><strong>The Phase 8 addendum:</strong> this page's thesis held for every <em>cloud</em> swap — and
+    Phase 8 found its boundary. Swapping the <em>operating system</em> (Talos) reached back into this layer:
+    a scripted image pipeline where Ubuntu got a marketplace reference, a ceremonial
+    <span class="pill p-k8s">osProfile</span> for an OS with no users, port 50000 in place of 22, and the
+    contract's <code>sshUser</code> carried as a lie. The parts of infra that describe <em>what a machine
+    is</em> belong to the OS, not the cloud (ADR 012).</p>
+  </div>
   <div class="thesis">
     <p><strong>The shape of the difference:</strong> AWS <em>infers</em> — one instance resource implies its NIC and public IP, rules imply direction and ordering, but internet egress needs explicit gateway-and-route plumbing. Azure <em>declares</em> — NIC, public IP, rule priorities, and identity are first-class objects you wire together, but routing, egress, and intra-VNet traffic come free. Kubernetes never notices either way, because the only surface it touches is the <span class="pill p-k8s">nodes contract</span> — the same five fields, three swaps in a row.</p>
   </div>
