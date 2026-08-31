@@ -209,10 +209,17 @@ Depends on: storage (Phase 4 CSI/local-path), ingress + cert-manager
   container in a delegated subnet runs talosctl over the clean
   intra-VNet path. Runbook 08 written — the procedure has completed
   once, which is the bar.
-- ⬜ Session B: Cilium (KubePrism as `k8sServiceHost`), then the payoff —
-  restore the NetBox database from the SAME blob archive the kubeadm
-  cluster wrote, so the data outlives the cluster, the OS AND the
-  bootstrap method.
+- ✅ Session B (2026-08-31): Cilium via KubePrism first try, and the
+  payoff verbatim — the NetBox database restored on Talos from the final
+  kubeadm cluster's archive: 3 VMs / 9 IPs / 4 prefixes / 1 site, with
+  archiving resumed under `pg-talos-20260831`. The data outlived the
+  cluster, the OS, and the bootstrap method. Third invisible-on-Ubuntu
+  default surfaced: Talos enforces PSS baseline cluster-wide (hostPath
+  storage needs a privileged namespace label).
+- ✅ **ADR 012 — the verdict ADR 004 deferred**: kubeadm shows you
+  Kubernetes; Talos hides Linux. kubeadm stays primary (this project's
+  purpose is legibility); Talos is the target if the cluster ever needs
+  to simply stay up rather than teach. Phase 8 COMPLETE.
 - ✅ Runbook 08 (talos: provision, bootstrap, operate, the seven gotchas,
   and the timeout diagnosis order).
 
