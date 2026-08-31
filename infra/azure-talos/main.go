@@ -110,6 +110,30 @@ func main() {
 			return err
 		}
 
+		// A second subnet, delegated to Azure Container Instances. It exists
+		// because of a CLIENT problem: from this laptop's network, the mTLS
+		// handshake to :50000 consistently takes ~10s — a hair past
+		// talosctl's fixed dial deadline — so bootstrap failed three times
+		// while anonymous TLS worked instantly (see the session A journal).
+		// From inside the VNet the path is clean, so talosctl runs in a
+		// one-shot ACI container here instead. ACI requires a DEDICATED
+		// delegated subnet; it cannot share snet-nodes.
+		_, err = network.NewSubnet(ctx, "snet-aci", &network.SubnetArgs{
+			SubnetName:         pulumi.String("snet-aci"),
+			ResourceGroupName:  rg.Name,
+			VirtualNetworkName: vnet.Name,
+			AddressPrefix:      pulumi.String("10.0.2.0/24"),
+			Delegations: network.DelegationArray{
+				&network.DelegationArgs{
+					Name:        pulumi.String("aci"),
+					ServiceName: pulumi.String("Microsoft.ContainerInstance/containerGroups"),
+				},
+			},
+		})
+		if err != nil {
+			return err
+		}
+
 		subnet, err := network.NewSubnet(ctx, "snet-nodes", &network.SubnetArgs{
 			SubnetName:         pulumi.String("snet-nodes"),
 			ResourceGroupName:  rg.Name,
