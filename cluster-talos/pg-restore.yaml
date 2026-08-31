@@ -1,0 +1,66 @@
+# Session B — the Phase 8 payoff, in three resources.
+#
+# This cluster is BORN from pg-gen4-20260827: the archive the FINAL kubeadm
+# cluster wrote (via the barman plugin) before the Ubuntu era ended. If the
+# netbox database comes back with its records on a Talos node, the data has
+# now outlived: five pods (drill 1), a node (drill 2), a Valkey (drill 3),
+# a PITR target (drill 4), four full cluster destroys (drill 5 + rebuilds),
+# THE OPERATING SYSTEM, and THE BOOTSTRAP METHOD. That sentence is what
+# Phase 8 was for.
+#
+# Deliberately minimal versus apps/postgres-cnpg: one instance, no pooler,
+# no managed roles, no ScheduledBackup — this is a verification cluster
+# with a four-day lifespan, not a platform. It still archives (runbook 06
+# rule: its own fresh generation) because a restore that doesn't resume
+# backups isn't done — even here.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: postgres-cnpg
+---
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: pg-store
+  namespace: postgres-cnpg
+spec:
+  configuration:
+    destinationPath: https://sttrkk8sf92a7ab3.blob.core.windows.net/pg-backups
+    azureCredentials:
+      # The SAME node identity as every era — id-trk-k8s-node is attached
+      # to the Talos VMs by infra/azure-talos exactly as infra/azure did.
+      # Whether Azure IMDS works from a pod on Talos is itself a Session B
+      # test; on kubeadm+Ubuntu it did (no AWS-style hop-limit drama).
+      inheritFromAzureAD: true
+    wal:
+      compression: gzip
+    data:
+      compression: gzip
+  retentionPolicy: "7d"
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: pg
+  namespace: postgres-cnpg
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie
+  storage:
+    size: 5Gi
+  bootstrap:
+    recovery:
+      source: pg-previous-generation
+  externalClusters:
+    - name: pg-previous-generation
+      plugin:
+        name: barman-cloud.cloudnative-pg.io
+        parameters:
+          barmanObjectName: pg-store
+          serverName: pg-gen4-20260827
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: pg-store
+        serverName: pg-talos-20260831

@@ -1,0 +1,67 @@
+# Cilium values for TALOS — cluster/addons/cilium/values.yaml, re-derived
+# for an OS with no kube-proxy binary, no shell, and a locked-down host.
+# Every divergence from the kubeadm file is Talos-specific and commented;
+# everything else (pod CIDR, one operator replica, Hubble) matches, on
+# purpose, so the Session B comparison isolates the OS variable.
+ipam:
+  mode: cluster-pool
+  operator:
+    clusterPoolIPv4PodCIDRList:
+      - 10.244.0.0/16
+
+operator:
+  replicas: 1
+
+hubble:
+  relay:
+    enabled: true
+  ui:
+    enabled: true
+
+kubeProxyReplacement: true
+
+# THE Talos win over the kubeadm flow: on kubeadm, k8sServiceHost had to be
+# injected per-provider from the inventory (the control plane's private IP),
+# because with kube-proxy gone nothing provides the in-cluster API VIP
+# during Cilium's own bootstrap. Talos ships KubePrism — a host-local
+# apiserver load balancer on localhost:7445, on by default — so the value
+# is a CONSTANT. The one provider-specific wart in the kubeadm Cilium
+# install simply does not exist here.
+k8sServiceHost: localhost
+k8sServicePort: 7445
+
+# Talos's kernel keeps the cgroup2 fs at /sys/fs/cgroup and does not allow
+# Cilium's usual auto-mount dance; these two are the documented pairing.
+cgroup:
+  autoMount:
+    enabled: false
+  hostRoot: /sys/fs/cgroup
+
+# Talos drops ambient capabilities: the agent must ASK for exactly what it
+# needs instead of inheriting root's everything. This list is the
+# Talos-documented set; SYS_MODULE is notably absent because module
+# loading is forbidden — the kernel ships with what Cilium needs built in.
+securityContext:
+  capabilities:
+    ciliumAgent:
+      - CHOWN
+      - KILL
+      - NET_ADMIN
+      - NET_RAW
+      - IPC_LOCK
+      - SYS_ADMIN
+      - SYS_RESOURCE
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    cleanCiliumState:
+      - NET_ADMIN
+      - SYS_ADMIN
+      - SYS_RESOURCE
+
+# Gateway API deliberately OFF for Session B: the scope is Cilium +
+# storage + the CNPG restore, verified at the SQL level. The edge stack
+# (gateway, cert-manager, DNS) re-proves Phase 5/6.5, not Talos.
+gatewayAPI:
+  enabled: false
