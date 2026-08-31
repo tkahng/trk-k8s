@@ -96,7 +96,27 @@ to *image and config time* (where it fails deterministically, usually with
 a clearer error — the NVMe refusal named its own cause; the apt mirror
 never did).
 
-## State
+## Completion addendum (2026-08-31)
+
+Session A finished — three NotReady nodes (correct: `cni: none`), zero
+shell commands on any node. But the cert-SAN fix below was NOT the last
+word: the re-run failed the SAME way twice more, with two further and
+DIFFERENT causes. (2) The admin IP flip-flopped mid-run — fixed by
+making the NSG admit an accumulating LIST of admin addresses; a
+replace-on-drift guard had itself re-created the lockout. (3) talosctl
+has a fixed ~10s dial deadline and no timeout flag, and this laptop's
+network path takes ~10.05s for the mTLS handshake while anonymous TLS
+is instant — the gRPC trace showed the connection reaching READY at the
+exact moment the deadline canceled it. Escape hatch: a one-shot ACI
+container in a delegated subnet (now part of the Pulumi program) runs
+talosctl over the intra-VNet path; etcd bootstrapped first try from
+there.
+
+One symptom, three consecutive different root causes, every fix
+necessary and none sufficient alone. The diagnosis order that would
+have saved a day is now in runbook 08.
+
+## State (as written 2026-08-28, superseded above)
 
 Session A is **incomplete**. Fixed and committed: the image pipeline, the
 osProfile requirement, the gallery/NVMe bridge, the cert SANs. Not yet

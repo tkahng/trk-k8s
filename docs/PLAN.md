@@ -199,14 +199,22 @@ Depends on: storage (Phase 4 CSI/local-path), ingress + cert-manager
   `infra/azure-talos` Pulumi program, `cluster-talos/bootstrap.sh`,
   machine-config patch (`cni: none`, kube-proxy off, kubelet extraMounts
   for local-path on an immutable FS), and ten `make talos-*` targets.
-- 🔨 Session A live run: machines provision cleanly; `talosctl bootstrap`
-  timed out on missing certificate SANs for the NAT'd public IPs — the
-  Phase 2 `--apiserver-cert-extra-sans` lesson again. Fixed, not yet re-run.
+- ✅ Session A live run (2026-08-31): **three NotReady Talos nodes,
+  bootstrapped without SSH, apt, kubeadm, or a single shell command on
+  any node.** Three consecutive bootstrap failures had three DIFFERENT
+  real causes stacked on one symptom — missing cert SANs (Phase 2's
+  lesson in Talos clothes), admin-IP flip-flop mid-run, and finally
+  talosctl's fixed ~10s dial deadline meeting a client path whose mTLS
+  handshake takes ~10.05s. Escape hatch for the last: a one-shot ACI
+  container in a delegated subnet runs talosctl over the clean
+  intra-VNet path. Runbook 08 written — the procedure has completed
+  once, which is the bar.
 - ⬜ Session B: Cilium (KubePrism as `k8sServiceHost`), then the payoff —
   restore the NetBox database from the SAME blob archive the kubeadm
   cluster wrote, so the data outlives the cluster, the OS AND the
   bootstrap method.
-- No runbook until the procedure completes once.
+- ✅ Runbook 08 (talos: provision, bootstrap, operate, the seven gotchas,
+  and the timeout diagnosis order).
 
 ### Open follow-ups (carried, not phases)
 - ✅ **Barman Cloud Plugin migration — DONE 2026-08-28** (journal). Plugin
