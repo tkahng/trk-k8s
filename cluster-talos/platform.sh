@@ -36,6 +36,13 @@ echo "### storage: local-path, pointed at /var/mnt/local-path"
 # kubelet already bind-mounts /var/mnt/local-path (patch-common.yaml);
 # point the provisioner's nodePathMap at it.
 kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.36/deploy/local-path-storage.yaml > /dev/null
+# Talos enforces Pod Security admission (baseline) CLUSTER-WIDE by default —
+# kubeadm enforced nothing, so this difference was invisible until the
+# provisioner's hostPath helper pod was refused outright:
+#   violates PodSecurity "baseline:latest": hostPath volumes
+# The provisioner namespace must be explicitly privileged. Secure-by-default
+# reaches the Kubernetes layer on Talos, not just the OS.
+kubectl label ns local-path-storage pod-security.kubernetes.io/enforce=privileged --overwrite > /dev/null
 kubectl -n local-path-storage patch configmap local-path-config --type merge \
   -p '{"data":{"config.json":"{\n  \"nodePathMap\": [{\n    \"node\": \"DEFAULT_PATH_FOR_NON_LISTED_NODES\",\n    \"paths\": [\"/var/mnt/local-path\"]\n  }]\n}"}}' > /dev/null
 kubectl -n local-path-storage rollout restart deploy/local-path-provisioner > /dev/null
