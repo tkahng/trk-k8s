@@ -31,6 +31,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/pulumi/pulumi-azure-native-sdk/compute/v3"
 	"github.com/pulumi/pulumi-azure-native-sdk/network/v3"
@@ -50,7 +51,13 @@ func main() {
 	pulumi.Run(func(ctx *pulumi.Context) error {
 		cfg := config.New(ctx, "trk-k8s-azure-talos")
 		location := config.New(ctx, "azure-native").Require("location")
-		myIP := cfg.Require("myIp")
+		// Comma-separated CIDRs, not one: this session's admin laptop
+		// oscillates between two networks fast enough that a single-/32
+		// rule failed the SAME bootstrap step twice — the IP flipped
+		// mid-run, and a dropped packet reads as an inscrutable timeout.
+		// Admitting every address the operator is known to use turns a
+		// mid-session flip from a lockout into a non-event.
+		myIPs := strings.Split(cfg.Require("myIp"), ",")
 		// Built once by image.sh into the locked persistent group.
 		talosImageID := cfg.Require("talosImageId")
 		// Required by Azure, ignored by Talos. See the osProfile note below.
@@ -82,14 +89,9 @@ func main() {
 			ResourceGroupName:        rg.Name,
 			Location:                 rg.Location,
 			Tags:                     tags,
-			SecurityRules: network.SecurityRuleTypeArray{
-				// 50000 replaces 22: this is the whole "no SSH" difference,
-				// expressed as one firewall rule.
-				tcpRule("AllowTalosApiFromAdmin", 100, "50000", myIP),
-				tcpRule("AllowApiServerFromAdmin", 110, "6443", myIP),
-				tcpRule("AllowGatewayHttpFromAdmin", 120, "30080", myIP),
-				tcpRule("AllowGatewayHttpsFromAdmin", 130, "30443", myIP),
-			},
+			// 50000 replaces 22: this is the whole "no SSH" difference,
+			// expressed as firewall rules. One rule per port per admin CIDR.
+			SecurityRules: adminRules(myIPs),
 		})
 		if err != nil {
 			return err
@@ -251,6 +253,29 @@ func main() {
 		ctx.Export("talos-endpoint", pulumi.Sprintf("https://%s:6443", "10.0.1.10"))
 		return nil
 	})
+}
+
+// The admin ports, one rule per (port, CIDR) pair with unique priorities.
+func adminRules(cidrs []string) network.SecurityRuleTypeArray {
+	ports := []struct {
+		name string
+		port string
+	}{
+		{"TalosApi", "50000"},
+		{"ApiServer", "6443"},
+		{"GatewayHttp", "30080"},
+		{"GatewayHttps", "30443"},
+	}
+	rules := network.SecurityRuleTypeArray{}
+	prio := 100
+	for i, cidr := range cidrs {
+		cidr = strings.TrimSpace(cidr)
+		for _, p := range ports {
+			rules = append(rules, tcpRule(fmt.Sprintf("Allow%sFromAdmin%d", p.name, i), prio, p.port, cidr))
+			prio += 10
+		}
+	}
+	return rules
 }
 
 // One NSG rule allowing a single TCP port inbound from the admin CIDR.

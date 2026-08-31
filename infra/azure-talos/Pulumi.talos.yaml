@@ -2,7 +2,7 @@ secretsprovider: azurekeyvault://kv-trk-k8s-f92a7ab3.vault.azure.net/keys/pulumi
 encryptedkey: MXZkdUw1UWh4azdRZkI5OURlbVlmNkZZd3doWl9YRTliZkRFd0RHelliSDVZNnktX2g3NFgzWHYtTm1pQVVmMWlKRU9IRGk0YkZBNGVSel9PN0Q0MGlPYjhWODFYS2xOenFYT25tb2lyZkpOclNUaHcxQ2UyTFpNMjFWTWtIcDY4cHpvT3lKRnRfSXBWUlhTUmI2TjU5T0tkRUNZV1EzZllUWmp0UHR1blFLWlhFMHZrS1RKUGFFTTRIOWZuSzEyek5udDdfcS1oNFlyWndGdk1hUW0wbWJNdnVVMVVKQWh3Uy0wLVVDQ3B6ckFuYUQyZk8zZjR0WHZFTlEyb0FhaDRWUFViRTJhazVaaGlHaEptZGY3SW5kMmRiSkpDNWFOTk1TeEtRdWNVdElvQnFmbFpXY251VVZnRy0zbEFGNEo3ZU90OTQwdDV3NEIyelRyWXRuM05B
 config:
   azure-native:location: eastus
-  trk-k8s-azure-talos:myIp: 152.89.204.157/32
+  trk-k8s-azure-talos:myIp: 45.50.96.187/32,165.162.31.50/32,187.13.176.181/32,152.89.204.157/32
   trk-k8s-azure-talos:talosImageId: /subscriptions/85f3b630-afa5-42cf-b8b3-b06abbf5a28f/resourceGroups/rg-trk-k8s-persistent/providers/Microsoft.Compute/galleries/sigtrkk8s/images/talos/versions/1.13.9
   trk-k8s-azure-talos:nodeIdentityId: /subscriptions/85f3b630-afa5-42cf-b8b3-b06abbf5a28f/resourcegroups/rg-trk-k8s-persistent/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-trk-k8s-node
   trk-k8s-azure-talos:sshPublicKey: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGOB9MhkVD2cuSSycPIqiSna0oSbTfbHc9/6/tBBy7Xw tkahng-k8s-azure

@@ -114,14 +114,19 @@ ssh-worker-2: ## ssh into worker 2
 talos-image: ## ONE TIME per Talos version: build the Azure managed image (idempotent)
 	$(TALOS_DIR)/image.sh
 
-talos-check-ip: ## sync the Talos stack's myIp with your current public IP
+# ACCUMULATES addresses rather than replacing: this laptop oscillates
+# between networks fast enough that a replace-on-drift guard (the kubeadm
+# stack's behavior) re-locked us out mid-bootstrap twice. myIp is a
+# comma-separated list; a new address is appended, known ones are kept.
+talos-check-ip: ## ensure your current public IP is among the Talos stack's admin IPs
 	@current="$$(curl -sf --max-time 10 https://checkip.amazonaws.com)"; \
 	if [ -z "$$current" ]; then echo "talos-check-ip: WARN could not reach checkip, skipping"; exit 0; fi; \
 	cd $(TALOS_DIR); configured="$$($(TALOS_PULUMI) config get myIp)"; \
-	if [ "$$current/32" != "$$configured" ]; then \
-		echo "talos-check-ip: myIp drift ($$configured -> $$current/32), updating"; \
-		$(TALOS_PULUMI) config set myIp "$$current/32"; \
-	else echo "talos-check-ip: myIp OK ($$configured)"; fi
+	case ",$$configured," in \
+		*",$$current/32,"*) echo "talos-check-ip: $$current already admitted ($$configured)";; \
+		*) echo "talos-check-ip: appending $$current/32 to ($$configured)"; \
+		   $(TALOS_PULUMI) config set myIp "$$configured,$$current/32";; \
+	esac
 
 talos-preview: ## show what the Talos stack would change
 	cd $(TALOS_DIR) && $(TALOS_PULUMI) preview
