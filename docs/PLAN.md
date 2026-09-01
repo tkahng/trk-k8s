@@ -263,6 +263,83 @@ banked that experience. Two things recorded now, decided then:
   Phase 6. Also isolates variables: Postgres lands on a known OS first;
   local-path on Talos's immutable FS (kubelet `extraMounts`) comes second.
 
+### Phase 9 — Hasura stack: the schema is mine (added 2026-09-01)
+
+Diagnosis behind this phase: Phases 7.1–7.5 built the exact target stack
+(Postgres → PgBouncer → HA → operator → consuming app), yet "build a
+cluster with persistent storage from scratch" still feels uncomfortable.
+Two causes, two fixes:
+1. Every build so far had our own docs open. **Fix: the closed-book rule.**
+   Every session below starts from memory — write the manifests/scripts
+   blind, get it working, and only then diff against `cluster/` and
+   `apps/postgres-cnpg/`. Journal the gaps; the repo becomes the answer
+   key, not the textbook.
+2. NetBox was someone else's schema. **Fix: own the app layer.** A
+   personal-finance domain (accounts, transactions, categories, budgets)
+   designed from scratch, served by **Hasura** — chosen because its shape
+   is ideal for the scaling goal: append-heavy writes, report-heavy reads.
+
+Decisions (made 2026-09-01, home revised twice same day):
+- **Start NOW on Azure, move to Hetzner after Sept 4.** The credits are
+  already paid until Sept 4 — burn them on the first closed-book reps
+  (9.0, and 9.1/9.2 if the pace holds). Then teardown-to-zero per ADR
+  010's checklist, and the course continues on **Hetzner** — which
+  cashes the check ADR 002 wrote: `infra/hetzner/` has existed since
+  day one but NEVER RUN (no capacity in July), so the move is both the
+  fourth provider swap and that program's first live test. Known deltas
+  from ADR 002: `sshUser` is `root`, and Hetzner firewalls filter only
+  the public interface. ~€13/mo for 3× CX23 — cheap enough to leave up,
+  but the teardown habit stays; closed-book reps need rebuilds anyway.
+- **The swap lands MID-COURSE, on purpose.** Whatever finance data and
+  Hasura metadata exist by Sept 4 must cross the provider boundary the
+  way NetBox crossed the OS boundary in Phase 8: git + WAL archive,
+  nothing else. The move is itself a drill, not an interruption.
+- **WAL archive stays in AWS S3** (both buckets alive, pennies idle):
+  the archive lineage and restore story continue unbroken, cross-cloud.
+  Optional later lesson: migrate the ObjectStore CR to Hetzner Object
+  Storage (S3-compatible) and prove the seam again at the backup layer.
+- **DB track: CloudNativePG.** The Patroni scars are banked (7.3); the
+  learning budget goes to the app layer. Replicas and `-ro`/`-r`
+  services come nearly free with `instances: 3`.
+
+Landmines recorded up front, to be hit deliberately:
+- **Hasura uses prepared statements; PgBouncer transaction pooling
+  historically breaks them.** PgBouncer ≥1.21 handles it
+  (`max_prepared_statements`); the CNPG `Pooler` IS PgBouncer, so this
+  is a config lesson, not a new component.
+- **Native read-replica routing is Hasura Cloud/Enterprise, not CE.**
+  Phase 9.4 is therefore a real design decision, not a checkbox.
+- Hasura metadata/migrations are declarative state in git (`hasura` CLI)
+  — the app-layer twin of the CNPG restore story, and part of what the
+  capstone must recover.
+
+Sessions (each closed-book first, diff-and-journal after):
+1. **9.0 — platform from memory (Azure, now).** Fresh kubeadm cluster +
+   azure-disk CSI + CNPG operator + barman plugin, no peeking, timeboxed
+   ~3h. The diff is the deliverable. (The Hetzner first-run rep moves to
+   the Sept 4 swap: hcloud CSI, `root` sshUser, and wherever the
+   never-tested program lies about reality — journal it then.)
+2. **9.1 — the ledger database.** Design the finance schema; new CNPG
+   Cluster + ObjectStore + ScheduledBackup for it; schema managed as
+   Hasura migrations in git from day one.
+3. **9.2 — Hasura CE on the cluster.** Deployment + HTTPRoute under the
+   wildcard cert, probes, admin secret, metadata applied from git; wire
+   it through a CNPG Pooler and hit the prepared-statements landmine
+   on purpose.
+4. **9.3 — HA under our own app.** `instances: 3`; replay drill 1
+   (failover under load) with Hasura subscriptions live instead of
+   NetBox — measure what a GraphQL client actually experiences.
+5. **9.4 — read scaling (the design decision).** Options, in honesty
+   order: (a) explicit split — point read-only consumers (reporting)
+   at the `-ro` service; (b) **pgcat** — pooler-level read/write
+   splitting, transparent to Hasura, sharp edges with prepared
+   statements; (c) Hasura EE 30-day trial to see the native feature.
+   Either way: measure replication lag, provoke a stale read on
+   purpose — that's the lesson that makes primary/replica real.
+6. **9.5 — capstone, fully closed book.** Destroy everything. Rebuild
+   cluster + CNPG + Hasura from memory; recover BOTH databases from
+   the WAL archive and Hasura metadata from git. Comfort certificate.
+
 ## Documentation layout
 
 ```
