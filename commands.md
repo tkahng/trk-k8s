@@ -44,8 +44,8 @@ sudo systemctl enable --now kubelet
 
 ```bash
 sudo kubeadm init \
-  --apiserver-advertise-address=<A> \
-  --apiserver-cert-extra-sans=<B> \
-  --pod-network-cidr=<C>
+  --apiserver-advertise-address=<cp-ip-private> \
+  --apiserver-cert-extra-sans=<cp-ip-public> \
+  --pod-network-cidr=10.244.0.0/16
 
 ```
