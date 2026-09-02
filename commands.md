@@ -1,5 +1,7 @@
 # prep
 
+for each node
+
 ```bash
 # --- container runtime ---
 sudo apt-get update && sudo apt-get install -y containerd
@@ -41,6 +43,8 @@ sudo systemctl enable --now kubelet
 ```
 
 # init
+
+on cp1
 
 ```bash
 sudo kubeadm init \
