@@ -24,7 +24,7 @@ PULUMI         := AWS_PROFILE=$(AWS_PROFILE) PULUMI_CONFIG_PASSPHRASE_FILE=$(HOM
 node_ip   = $(shell cd $(INFRA_DIR) && $(PULUMI) stack output nodes | jq -r '.[] | select(.name=="$(1)").publicIp')
 node_user = $(shell cd $(INFRA_DIR) && $(PULUMI) stack output nodes | jq -r '.[] | select(.name=="$(1)").sshUser')
 
-.PHONY: help login preview up destroy nodes outputs check-ip set-myip ssh-cp ssh-worker-1 ssh-worker-2 kubeconfig bootstrap platform rebuild
+.PHONY: help login preview up destroy nodes outputs check-ip add-ip ssh-cp ssh-worker-1 ssh-worker-2 kubeconfig bootstrap platform rebuild
 
 help: ## list available targets
 	@grep -E '^[a-z0-9-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -47,20 +47,29 @@ nodes: ## print the node inventory (the provider-agnostic contract)
 outputs: ## print all stack outputs
 	@cd $(INFRA_DIR) && $(PULUMI) stack output
 
-# The firewall only admits myIp for SSH/6443/NodePorts — if your public IP
-# drifts (ISP lease, different network), every rebuild locks you out at
-# "wait for SSH". Learned the hard way 2026-07-18; `up` now runs this preflight.
-check-ip: ## sync stack config myIp with your current public IP (auto-runs before `up`)
+# The firewall only admits myIp for SSH/6443/NodePorts. myIp is a
+# comma-separated LIST and this target APPENDS rather than replaces: the
+# admin works from two places and the laptop's IP flip-flops, and the
+# kubeadm-era replace-on-drift guard re-locked us out mid-bootstrap twice
+# (Phase 8 journal). Known addresses are kept; prune by hand with
+# `pulumi config set myIp ...` when a location is retired.
+check-ip: ## ensure your current public IP is among the admin IPs (auto-runs before `up`)
 	@current="$$(curl -sf --max-time 10 https://checkip.amazonaws.com)"; \
 	if [ -z "$$current" ]; then echo "check-ip: WARN could not reach checkip.amazonaws.com, skipping"; exit 0; fi; \
 	cd $(INFRA_DIR); configured="$$($(PULUMI) config get myIp)"; \
-	if [ "$$current/32" != "$$configured" ]; then \
-		echo "check-ip: myIp drift ($$configured -> $$current/32), updating stack config"; \
-		$(PULUMI) config set myIp "$$current/32"; \
-	else echo "check-ip: myIp OK ($$configured)"; fi
+	case ",$$configured," in \
+		*",$$current/32,"*) echo "check-ip: $$current already admitted ($$configured)";; \
+		*) echo "check-ip: appending $$current/32 to ($$configured)"; \
+		   $(PULUMI) config set myIp "$$configured,$$current/32";; \
+	esac
 
-set-myip: check-ip ## manually sync the admin IP, then remind to apply (kept for muscle memory)
-	@echo "now run: make up"
+add-ip: ## admit another address ahead of time: make add-ip IP=203.0.113.7
+	@test -n "$(IP)" || { echo "usage: make add-ip IP=<address>"; exit 1; }
+	@cd $(INFRA_DIR); configured="$$($(PULUMI) config get myIp)"; \
+	case ",$$configured," in \
+		*",$(IP)/32,"*) echo "add-ip: $(IP) already admitted";; \
+		*) $(PULUMI) config set myIp "$$configured,$(IP)/32"; echo "add-ip: admitted $(IP) — now run: make up";; \
+	esac
 
 bootstrap: ## kubeadm + cilium on the provisioned machines (runbooks 02+03, scripted)
 	@cd $(INFRA_DIR) && $(PULUMI) stack output nodes > /tmp/trk-inventory.json

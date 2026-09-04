@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/pulumi/pulumi-hcloud/sdk/go/hcloud"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -26,9 +27,17 @@ type node struct {
 func main() {
 	pulumi.Run(func(ctx *pulumi.Context) error {
 		cfg := config.New(ctx, "")
-		// Your public IP in CIDR form (e.g. 203.0.113.7/32). SSH and the
-		// Kubernetes API are only reachable from here.
-		myIP := cfg.Require("myIp")
+		// Your public IPs in CIDR form, comma-separated (e.g.
+		// 203.0.113.7/32,198.51.100.4/32). SSH and the Kubernetes API are
+		// only reachable from these. A list rather than one address because
+		// the admin works from two places and the laptop's IP flip-flops —
+		// replace-on-drift locked us out mid-bootstrap twice (Phase 8).
+		adminIPs := pulumi.StringArray{}
+		for _, ip := range strings.Split(cfg.Require("myIp"), ",") {
+			if ip = strings.TrimSpace(ip); ip != "" {
+				adminIPs = append(adminIPs, pulumi.String(ip))
+			}
+		}
 		sshPublicKey := cfg.Require("sshPublicKey")
 
 		location := "fsn1" // Falkenstein — CX series is EU-only
@@ -79,21 +88,21 @@ func main() {
 					Direction:   pulumi.String("in"),
 					Protocol:    pulumi.String("tcp"),
 					Port:        pulumi.String("22"),
-					SourceIps:   pulumi.StringArray{pulumi.String(myIP)},
+					SourceIps:   adminIPs,
 				},
 				&hcloud.FirewallRuleArgs{
 					Description: pulumi.String("Kubernetes API from admin"),
 					Direction:   pulumi.String("in"),
 					Protocol:    pulumi.String("tcp"),
 					Port:        pulumi.String("6443"),
-					SourceIps:   pulumi.StringArray{pulumi.String(myIP)},
+					SourceIps:   adminIPs,
 				},
 				&hcloud.FirewallRuleArgs{
 					Description: pulumi.String("Gateway NodePorts (30080/30443) from admin"),
 					Direction:   pulumi.String("in"),
 					Protocol:    pulumi.String("tcp"),
 					Port:        pulumi.String("30000-32767"),
-					SourceIps:   pulumi.StringArray{pulumi.String(myIP)},
+					SourceIps:   adminIPs,
 				},
 				&hcloud.FirewallRuleArgs{
 					Description: pulumi.String("ICMP (ping)"),
