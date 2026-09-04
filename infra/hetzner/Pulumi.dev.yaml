@@ -1,0 +1,6 @@
+encryptionsalt: v1:LZ768gJFJfw=:v1:jStVvAErzbHDrEhH:+Unl7P3zerDqKBFBo8U6usUX9j5loA==
+config:
+  hcloud:token:
+    secure: v1:JPOtvm7xiOsdC77w:VFvLsqKGG5Ss632XSC4z2tgMTJke2jPrvI97Xsxy3Caa/jKPuWTB1JmRM3xxh53gCreXEt11Dl/8hy6FuvquyLsotzovwtYsY1HPBd8kP4s=
+  trk-k8s-hetzner:myIp: 165.162.31.50/32
+  trk-k8s-hetzner:sshPublicKey: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINEk+/SjnsgwK45LOorkRl1JQaTgRt/owqj8ghHIBwyU tkahng-k8s-cluster

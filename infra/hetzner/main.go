@@ -31,9 +31,16 @@ func main() {
 		myIP := cfg.Require("myIp")
 		sshPublicKey := cfg.Require("sshPublicKey")
 
-		location := "fsn1"        // Falkenstein — CX series is EU-only
-		serverType := "cx23"      // 2 vCPU x86, 4 GB RAM (see docs/decisions/001)
+		location := "fsn1" // Falkenstein — CX series is EU-only
 		image := "ubuntu-24.04"
+		// Per-role sizing (drill 2, journal 2026-08-18): a 4 GB worker running
+		// a CNPG instance plus the platform stack has one boot spike of
+		// headroom and wedges at the node level under load. The control
+		// plane only hosts etcd/apiserver/Cilium and is fine at 4 GB.
+		serverTypes := map[string]string{
+			"control-plane": "cx23", // 2 vCPU x86, 4 GB (see docs/decisions/001)
+			"worker":        "cx33", // 4 vCPU x86, 8 GB
+		}
 
 		sshKey, err := hcloud.NewSshKey(ctx, "k8s-admin", &hcloud.SshKeyArgs{
 			Name:      pulumi.String("k8s-admin"),
@@ -82,6 +89,13 @@ func main() {
 					SourceIps:   pulumi.StringArray{pulumi.String(myIP)},
 				},
 				&hcloud.FirewallRuleArgs{
+					Description: pulumi.String("Gateway NodePorts (30080/30443) from admin"),
+					Direction:   pulumi.String("in"),
+					Protocol:    pulumi.String("tcp"),
+					Port:        pulumi.String("30000-32767"),
+					SourceIps:   pulumi.StringArray{pulumi.String(myIP)},
+				},
+				&hcloud.FirewallRuleArgs{
 					Description: pulumi.String("ICMP (ping)"),
 					Direction:   pulumi.String("in"),
 					Protocol:    pulumi.String("icmp"),
@@ -120,7 +134,7 @@ func main() {
 		for _, n := range nodes {
 			server, err := hcloud.NewServer(ctx, n.name, &hcloud.ServerArgs{
 				Name:             pulumi.String(n.name),
-				ServerType:       pulumi.String(serverType),
+				ServerType:       pulumi.String(serverTypes[n.role]),
 				Image:            pulumi.String(image),
 				Location:         pulumi.String(location),
 				SshKeys:          pulumi.StringArray{sshKey.Name},
