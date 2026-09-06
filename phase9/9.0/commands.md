@@ -71,8 +71,8 @@ Run "kubectl apply -f [podnetwork].yaml" with one of the options listed at:
 
 Then you can join any number of worker nodes by running the following on each as root:
 
-kubeadm join 10.0.1.10:6443 --token <token> \
- --discovery-token-ca-cert-hash sha256:<hash>
+kubeadm join 10.0.1.10:6443 --token oa0d0g.fvoj1tmyv15l9klp \
+ --discovery-token-ca-cert-hash sha256:c505f4ea019d4c8e27d991770baf60f954b588cca3b1f1e34901e72c7ba8890a
 ```
 
 run mkdir,cp,chown on cp.
@@ -83,9 +83,9 @@ run join on workers
 Step 1 — get kubectl working from your laptop. Helm runs from wherever your kubeconfig is, and you don't want to install Helm on the node. From the laptop:
 
 ```bash
-scp -i ~/.ssh/azure_k8s ubuntu@20.51.163.13:.kube/config ./kubeconfig-9.0
-sed -i '' 's/10.0.1.10/20.51.163.13/' ./kubeconfig-9.0
-export KUBECONFIG=$PWD/kubeconfig-9.0 && kubectl get nodes
+scp -i ~/.ssh/hetzner_k8s root@49.12.65.53:.kube/config ./kubeconfig-9.0
+sed -i '' 's/10.0.1.10/49.12.65.53/' ./kubeconfig-9.0
+export KUBECONFIG=$PWD/kubeconfig-9.0 && kubectl get nodes -o wide
 ```
 
 The sed is the point: the file says server: <https://10.0.1.10:6443> — the advertise address — which your laptop can't reach. You swap in the public IP, and it works only because you put that IP in --apiserver-cert-extra-sans. That's the flag paying off.
@@ -94,7 +94,7 @@ Step 2 — Cilium via Helm. The gotcha: Cilium does not automatically read the -
 
 ```bash
 helm repo add cilium https://helm.cilium.io/ && helm repo update
-helm install cilium cilium/cilium --version 1.19.4 --namespace kube-system --set ipam.mode=kubernetes
+helm install cilium cilium/cilium --version 1.19.4 --namespace kube-system --set ipam.mode=kubernetes --set MTU=1400
 
 ```
 
