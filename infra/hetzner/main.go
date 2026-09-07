@@ -46,6 +46,13 @@ func main() {
 		// a CNPG instance plus the platform stack has one boot spike of
 		// headroom and wedges at the node level under load. The control
 		// plane only hosts etcd/apiserver/Cilium and is fine at 4 GB.
+		//
+		// Deliberately NOT configurable. Hetzner sells the CX line
+		// inconsistently (no capacity July; sold out EU-wide 2026-09-06),
+		// and the answer to that is `make up PROVIDER=aws`, not a different
+		// server type — the CPX line costs 4x and the CAX line is arm64,
+		// both variables this project doesn't want. `make up` preflights
+		// availability and fails fast.
 		serverTypes := map[string]string{
 			"control-plane": "cx23", // 2 vCPU x86, 4 GB (see docs/decisions/001)
 			"worker":        "cx33", // 4 vCPU x86, 8 GB

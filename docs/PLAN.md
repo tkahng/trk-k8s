@@ -297,7 +297,10 @@ Decisions (made 2026-09-01, home revised twice same day):
   too. So the provider is now a Makefile *variable*, not an edit: both
   stacks share the S3 state backend and the comma-separated admin-IP
   list; only `INFRA_DIR`, the SSH key and the platform storage branch
-  differ. Cost asymmetry to keep in mind: ~€17/mo on Hetzner vs
+  differ. Server types stay fixed at cx23/cx33 — the CPX line costs 4x
+  and CAX is arm64, both variables this phase doesn't want — so `make up`
+  preflights Falkenstein's availability and fails fast with the AWS
+  pointer instead. Cost asymmetry to keep in mind: ~€17/mo on Hetzner vs
   ~$0.24/hr (~$170/mo) on AWS t3a.large ×3 — teardown-between-sessions
   matters on AWS and doesn't on Hetzner.
 - **The swap lands MID-COURSE, on purpose.** Whatever finance data and

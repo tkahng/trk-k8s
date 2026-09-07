@@ -28,6 +28,7 @@ SSH_KEY          := ~/.ssh/hetzner_k8s
 # storageclass) — it lands after the Phase 9.0 closed-book diff. Until
 # then `none` = local-path only.
 PLATFORM_PROVIDER := none
+UP_PREFLIGHT     := capacity check-ip
 else ifeq ($(PROVIDER),aws)
 INFRA_DIR        := infra/aws
 SSH_KEY          := ~/.ssh/aws_k8s
@@ -36,6 +37,7 @@ PLATFORM_PROVIDER := aws
 # NEVER destroyed by `destroy` or `rebuild`. infra/aws reads it by
 # StackReference, so it must exist before `make up PROVIDER=aws`.
 PERSIST_DIR      := infra/aws-persistent
+UP_PREFLIGHT     := check-ip
 else
 $(error unknown PROVIDER '$(PROVIDER)' — use hetzner or aws)
 endif
@@ -54,7 +56,7 @@ PULUMI         := AWS_PROFILE=$(AWS_PROFILE) PULUMI_CONFIG_PASSPHRASE_FILE=$(HOM
 node_ip   = $(shell cd $(INFRA_DIR) && $(PULUMI) stack output nodes | jq -r '.[] | select(.name=="$(1)").publicIp')
 node_user = $(shell cd $(INFRA_DIR) && $(PULUMI) stack output nodes | jq -r '.[] | select(.name=="$(1)").sshUser')
 
-.PHONY: help login preview up destroy nodes outputs check-ip add-ip ssh-cp ssh-worker-1 ssh-worker-2 kubeconfig bootstrap platform rebuild persist-up persist-outputs
+.PHONY: help login preview up destroy nodes outputs check-ip add-ip capacity ssh-cp ssh-worker-1 ssh-worker-2 kubeconfig bootstrap platform rebuild persist-up persist-outputs
 
 help: ## list available targets
 	@grep -E '^[a-z0-9-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -65,7 +67,7 @@ login: ## refresh AWS SSO credentials for the Pulumi state backend (run when ses
 preview: ## show what pulumi would change
 	cd $(INFRA_DIR) && $(PULUMI) preview
 
-up: check-ip ## create/update the cluster machines
+up: $(UP_PREFLIGHT) ## create/update the cluster machines (Hetzner: fails fast if cx23/cx33 are sold out)
 	cd $(INFRA_DIR) && $(PULUMI) up --yes
 
 destroy: ## tear down the cluster machines (state + WAL archives live in S3 and survive)
@@ -100,6 +102,23 @@ add-ip: ## admit another address ahead of time: make add-ip IP=203.0.113.7
 		*",$(IP)/32,"*) echo "add-ip: $(IP) already admitted";; \
 		*) $(PULUMI) config set myIp "$$configured,$(IP)/32"; echo "add-ip: admitted $(IP) — now run: make up";; \
 	esac
+
+# Hetzner sells the CX line inconsistently (no capacity July; sold out
+# EU-wide 2026-09-06). The server types are fixed at cx23/cx33 on purpose
+# — other lines cost 4x or are arm64 — so when Falkenstein can't sell
+# them, `up` fails here, fast, before check-ip touches anything, and the
+# answer is `make up PROVIDER=aws`.
+capacity: ## Hetzner: can Falkenstein sell cx23 + cx33 right now? (auto-runs before `up`; fails if not)
+	@avail="$$(hcloud datacenter describe fsn1-dc14 -o json 2>/dev/null | jq -c '.server_types.available')"; \
+	test -n "$$avail" || { echo "capacity: could not query Hetzner (hcloud context / token?)"; exit 1; }; \
+	types="$$(hcloud server-type list -o json)"; missing=""; \
+	for t in cx23 cx33; do \
+		id="$$(echo "$$types" | jq -r ".[] | select(.name==\"$$t\").id")"; \
+		echo "$$avail" | jq -e "index($$id)" >/dev/null || missing="$$missing $$t"; \
+	done; \
+	if [ -n "$$missing" ]; then \
+		echo "capacity: Hetzner fsn1 cannot sell$$missing right now — use: make up PROVIDER=aws"; exit 1; \
+	else echo "capacity: fsn1 has cx23 + cx33"; fi
 
 bootstrap: ## kubeadm + cilium on the provisioned machines (runbooks 02+03, scripted)
 	@cd $(INFRA_DIR) && $(PULUMI) stack output nodes > /tmp/trk-inventory.json
