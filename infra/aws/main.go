@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/pulumi/pulumi-aws/sdk/v7/go/aws/ec2"
 	"github.com/pulumi/pulumi-aws/sdk/v7/go/aws/iam"
@@ -18,9 +19,17 @@ type node struct {
 func main() {
 	pulumi.Run(func(ctx *pulumi.Context) error {
 		cfg := config.New(ctx, "")
-		// Your public IP in CIDR form (e.g. 203.0.113.7/32). SSH and the
-		// Kubernetes API are only reachable from here.
-		myIP := cfg.Require("myIp")
+		// Your public IPs in CIDR form, comma-separated (e.g.
+		// 203.0.113.7/32,198.51.100.4/32). SSH and the Kubernetes API are
+		// only reachable from these. A list, same as infra/hetzner: the admin
+		// works from two places and `make check-ip` appends rather than
+		// replaces (the Phase 8 lockout lesson).
+		adminIPs := pulumi.StringArray{}
+		for _, ip := range strings.Split(cfg.Require("myIp"), ",") {
+			if ip = strings.TrimSpace(ip); ip != "" {
+				adminIPs = append(adminIPs, pulumi.String(ip))
+			}
+		}
 		sshPublicKey := cfg.Require("sshPublicKey")
 
 		// t3a.large (2 vCPU, 8 GB), up from t3a.medium: drill 2 on Azure
@@ -97,28 +106,28 @@ func main() {
 					Protocol:    pulumi.String("tcp"),
 					FromPort:    pulumi.Int(22),
 					ToPort:      pulumi.Int(22),
-					CidrBlocks:  pulumi.StringArray{pulumi.String(myIP)},
+					CidrBlocks:  adminIPs,
 				},
 				&ec2.SecurityGroupIngressArgs{
 					Description: pulumi.String("Kubernetes API from admin"),
 					Protocol:    pulumi.String("tcp"),
 					FromPort:    pulumi.Int(6443),
 					ToPort:      pulumi.Int(6443),
-					CidrBlocks:  pulumi.StringArray{pulumi.String(myIP)},
+					CidrBlocks:  adminIPs,
 				},
 				&ec2.SecurityGroupIngressArgs{
 					Description: pulumi.String("gateway HTTP from admin (cilium envoy, hostNetwork)"),
 					Protocol:    pulumi.String("tcp"),
 					FromPort:    pulumi.Int(30080),
 					ToPort:      pulumi.Int(30080),
-					CidrBlocks:  pulumi.StringArray{pulumi.String(myIP)},
+					CidrBlocks:  adminIPs,
 				},
 				&ec2.SecurityGroupIngressArgs{
 					Description: pulumi.String("gateway HTTPS from admin (cilium envoy, hostNetwork)"),
 					Protocol:    pulumi.String("tcp"),
 					FromPort:    pulumi.Int(30443),
 					ToPort:      pulumi.Int(30443),
-					CidrBlocks:  pulumi.StringArray{pulumi.String(myIP)},
+					CidrBlocks:  adminIPs,
 				},
 				&ec2.SecurityGroupIngressArgs{
 					Description: pulumi.String("all node-to-node traffic"),

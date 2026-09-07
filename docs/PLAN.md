@@ -290,6 +290,16 @@ Decisions (made 2026-09-01, home revised twice same day):
   from ADR 002: `sshUser` is `root`, and Hetzner firewalls filter only
   the public interface. ~€13/mo for 3× CX23 — cheap enough to leave up,
   but the teardown habit stays; closed-book reps need rebuilds anyway.
+- **2026-09-06: AWS is the standing fallback — `make up PROVIDER=aws`.**
+  Hetzner sold three servers on Sept 4 (first-ever `infra/hetzner` run;
+  three two-door findings, `docs/notes/provider-network-models.md`) and
+  then had none to sell two days later. Capacity was the July blocker
+  too. So the provider is now a Makefile *variable*, not an edit: both
+  stacks share the S3 state backend and the comma-separated admin-IP
+  list; only `INFRA_DIR`, the SSH key and the platform storage branch
+  differ. Cost asymmetry to keep in mind: ~€17/mo on Hetzner vs
+  ~$0.24/hr (~$170/mo) on AWS t3a.large ×3 — teardown-between-sessions
+  matters on AWS and doesn't on Hetzner.
 - **The swap lands MID-COURSE, on purpose.** Whatever finance data and
   Hasura metadata exist by Sept 4 must cross the provider boundary the
   way NetBox crossed the OS boundary in Phase 8: git + WAL archive,
