@@ -29,6 +29,8 @@ SSH_KEY          := ~/.ssh/hetzner_k8s
 # then `none` = local-path only.
 PLATFORM_PROVIDER := none
 UP_PREFLIGHT     := capacity check-ip
+# the one resource `admit` is allowed to touch
+FIREWALL_URN     := urn:pulumi:dev::trk-k8s-hetzner::hcloud:index/firewall:Firewall::k8s-fw
 else ifeq ($(PROVIDER),aws)
 INFRA_DIR        := infra/aws
 SSH_KEY          := ~/.ssh/aws_k8s
@@ -38,6 +40,7 @@ PLATFORM_PROVIDER := aws
 # StackReference, so it must exist before `make up PROVIDER=aws`.
 PERSIST_DIR      := infra/aws-persistent
 UP_PREFLIGHT     := check-ip
+FIREWALL_URN     := urn:pulumi:dev::trk-k8s-aws::aws:ec2/securityGroup:SecurityGroup::k8s-sg
 else
 $(error unknown PROVIDER '$(PROVIDER)' — use hetzner or aws)
 endif
@@ -56,7 +59,7 @@ PULUMI         := AWS_PROFILE=$(AWS_PROFILE) PULUMI_CONFIG_PASSPHRASE_FILE=$(HOM
 node_ip   = $(shell cd $(INFRA_DIR) && $(PULUMI) stack output nodes | jq -r '.[] | select(.name=="$(1)").publicIp')
 node_user = $(shell cd $(INFRA_DIR) && $(PULUMI) stack output nodes | jq -r '.[] | select(.name=="$(1)").sshUser')
 
-.PHONY: help login preview up destroy nodes outputs check-ip add-ip capacity ssh-cp ssh-worker-1 ssh-worker-2 kubeconfig bootstrap platform rebuild persist-up persist-outputs
+.PHONY: help login preview up destroy nodes outputs check-ip add-ip admit capacity ssh-cp ssh-worker-1 ssh-worker-2 kubeconfig bootstrap platform rebuild persist-up persist-outputs
 
 help: ## list available targets
 	@grep -E '^[a-z0-9-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -95,12 +98,19 @@ check-ip: ## ensure your current public IP is among the admin IPs (auto-runs bef
 		   $(PULUMI) config set myIp "$$configured,$$current/32";; \
 	esac
 
+# "My IP changed, let me back in" — the everyday command. Appends the
+# current address (check-ip) and pushes ONLY the firewall, so a pending
+# server change in the program (e.g. new user_data, which REPLACES servers)
+# is never applied by accident. `make up` applies everything.
+admit: check-ip ## my IP changed: admit it and push only the firewall (never touches servers)
+	cd $(INFRA_DIR) && $(PULUMI) up --yes --target '$(FIREWALL_URN)'
+
 add-ip: ## admit another address ahead of time: make add-ip IP=203.0.113.7
 	@test -n "$(IP)" || { echo "usage: make add-ip IP=<address>"; exit 1; }
 	@cd $(INFRA_DIR); configured="$$($(PULUMI) config get myIp)"; \
 	case ",$$configured," in \
 		*",$(IP)/32,"*) echo "add-ip: $(IP) already admitted";; \
-		*) $(PULUMI) config set myIp "$$configured,$(IP)/32"; echo "add-ip: admitted $(IP) — now run: make up";; \
+		*) $(PULUMI) config set myIp "$$configured,$(IP)/32"; echo "add-ip: admitted $(IP) — now run: make admit";; \
 	esac
 
 # Hetzner sells the CX line inconsistently (no capacity July; sold out
