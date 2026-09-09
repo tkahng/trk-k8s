@@ -111,9 +111,12 @@ The sed is the point: the file says server: <https://10.0.1.10:6443> — the adv
 Step 2 — Cilium via Helm. The gotcha: Cilium does not automatically read the --pod-network-cidr you gave kubeadm. Its default IPAM mode (cluster-pool) hands out pod IPs from its own default range, 10.0.0.0/8 — which overlaps your Azure VNet. Pods would get IPs that collide with your nodes. So you must either tell Cilium the CIDR, or tell it to use Kubernetes' per-node allocations (which do come from kubeadm's flag). The second is simpler:
 
 ```bash
+# export KUBECONFIG=$PWD/kubeconfig-9.0
 helm repo add cilium https://helm.cilium.io/ && helm repo update
 helm install cilium cilium/cilium --version 1.19.4 --namespace kube-system --set ipam.mode=kubernetes --set MTU=1400
-
+# - AWS: one NIC, MTU 9001 inside the VPC. Cilium measures it, subtracts 50, pods get plenty. Leave it unset.
+# - Azure: one NIC, MTU 1500. Same story, pods get 1450, correct. Leave it unset.
+# - Hetzner: Cilium measures eth0 (1500) but pod traffic rides enp7s0 (1450). The guess is 50 bytes too generous. Override to 1400.
 ```
 
 Then watch: kubectl get pods -n kube-system -w until the cilium pods are Running, and kubectl get nodes flips to Ready. That's the moment the middle paragraph of your init output was about.
