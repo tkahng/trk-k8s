@@ -40,6 +40,13 @@ sudo apt-get update
 sudo apt-get install -y kubelet kubeadm kubectl
 sudo apt-mark hold kubelet kubeadm kubectl
 sudo systemctl enable --now kubelet
+sudo apt-mark hold kubelet kubeadm kubectl
+sudo systemctl enable --now kubelet
+
+# --- hetzner only: two NICs, make kubelet register the private one ---
+# .10 cp-1, .11 worker-1, .12 worker-2 (see make nodes)
+echo 'KUBELET_EXTRA_ARGS=--node-ip=10.0.1.10' > /etc/default/kubelet
+systemctl restart kubelet
 ```
 
 # init
