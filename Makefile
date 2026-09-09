@@ -59,7 +59,7 @@ PULUMI         := AWS_PROFILE=$(AWS_PROFILE) PULUMI_CONFIG_PASSPHRASE_FILE=$(HOM
 node_ip   = $(shell cd $(INFRA_DIR) && $(PULUMI) stack output nodes | jq -r '.[] | select(.name=="$(1)").publicIp')
 node_user = $(shell cd $(INFRA_DIR) && $(PULUMI) stack output nodes | jq -r '.[] | select(.name=="$(1)").sshUser')
 
-.PHONY: help login preview up destroy nodes outputs check-ip add-ip admit capacity ssh-cp ssh-worker-1 ssh-worker-2 kubeconfig bootstrap platform rebuild persist-up persist-outputs
+.PHONY: help login preview up destroy nodes outputs check-ip add-ip admit capacity ssh-cp ssh-worker-1 ssh-worker-2 kubeconfig bootstrap platform rebuild persist-up persist-outputs pg-backup-secret
 
 help: ## list available targets
 	@grep -E '^[a-z0-9-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -145,6 +145,21 @@ persist-up: ## AWS: create/update the persistent stack (backup bucket + IAM poli
 persist-outputs: ## AWS: show persistent stack outputs (bucket name, policy arn)
 	@test -n "$(PERSIST_DIR)" || { echo "persist-*: only meaningful with PROVIDER=aws"; exit 1; }
 	@cd $(PERSIST_DIR) && $(PULUMI) stack select prod && $(PULUMI) stack output
+
+# Off-AWS clusters need static keys to reach the S3 backup bucket. Reads
+# them from the persistent stack and writes the Secret barman's ObjectStore
+# expects — the key is never printed or written to disk. Provider-agnostic
+# on purpose: it's how a Hetzner cluster reaches AWS.
+pg-backup-secret: ## create Secret aws-creds (ACCESS_KEY_ID / ACCESS_SECRET_KEY) in NS (default postgres-cnpg) from the persistent stack
+	@ns="$(or $(NS),postgres-cnpg)"; cd infra/aws-persistent; \
+	id="$$($(PULUMI) stack output pg-backup-access-key-id)"; \
+	key="$$($(PULUMI) stack output pg-backup-secret-access-key --show-secrets)"; \
+	test -n "$$id" -a -n "$$key" || { echo "pg-backup-secret: no key in the persistent stack — run: make persist-up PROVIDER=aws"; exit 1; }; \
+	kubectl create ns "$$ns" --dry-run=client -o yaml | kubectl apply -f - > /dev/null; \
+	kubectl -n "$$ns" create secret generic aws-creds \
+		--from-literal=ACCESS_KEY_ID="$$id" --from-literal=ACCESS_SECRET_KEY="$$key" \
+		--dry-run=client -o yaml | kubectl apply -f - > /dev/null; \
+	echo "pg-backup-secret: $$ns/aws-creds written (key id $$id)"
 
 rebuild: ## the full drill: destroy -> up -> bootstrap -> platform
 	$(MAKE) destroy
