@@ -85,6 +85,17 @@ kubeadm join 10.0.1.10:6443 --token zgijtd.zevevhru5hd711wr \
 run mkdir,cp,chown on cp.
 run join on workers
 
+# hetzner network notes
+
+The ELI5. Every Hetzner server is a house with two doors: the front door onto the public street (eth0, with a bouncer — the firewall), and the back door onto a private courtyard only your three houses share (enp7s0, 10.0.1.x). Three things go wrong: the back door has no handle (NIC exists but unconfigured), each house introduces itself by its front-door address (kubelet registers the public IP, so cp-1's packages get turned away by worker-1's bouncer), and the back door is narrower (1450-byte path, Cilium assumes 1500, big packets jam). AWS/Azure houses have one door, so none of it comes up.
+
+The steps, memorable as four words — look, handle, name, width:
+
+1. Look: ip -4 -brief addr — do you see enp7s0 10.0.1.x?
+2. Handle (only if not): netplan enp7s0: dhcp4: true, netplan apply
+3. Name: KUBELET_EXTRA_ARGS=--node-ip=10.0.1.x in /etc/default/kubelet, before init/join
+4. Width: --set MTU=1400 on the Cilium install
+
 # install cni
 
 Step 1 — get kubectl working from your laptop. Helm runs from wherever your kubeconfig is, and you don't want to install Helm on the node. From the laptop:
