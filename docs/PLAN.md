@@ -353,6 +353,12 @@ Sessions (each closed-book first, diff-and-journal after):
    cluster + CNPG + Hasura from memory; recover BOTH databases from
    the WAL archive and Hasura metadata from git. Comfort certificate.
 
+Parked (2026-09-09): **pgBackRest vs barman lab.** CNPG-I now has
+pgBackRest plugins (Dalibo v0.0.3, Opera) — S3-only, pre-1.0. Decided to
+finish 9.0 on barman (the known tool, so failures point at the new cloud)
+and later run both plugins side by side through the same restore drill —
+ADR 007's method applied to backup engines.
+
 ## Documentation layout
 
 ```
