@@ -303,6 +303,15 @@ Decisions (made 2026-09-01, home revised twice same day):
   pointer instead. Cost asymmetry to keep in mind: ~€17/mo on Hetzner vs
   ~$0.24/hr (~$170/mo) on AWS t3a.large ×3 — teardown-between-sessions
   matters on AWS and doesn't on Hetzner.
+- **2026-09-09: the STOCK RULE.** Never replace or destroy Hetzner servers
+  without confirmed stock. A Pulumi `replace` is destroy-then-create and
+  the create can fail for capacity — losing a cluster that can't be
+  re-bought. Enforced: `make up` runs `guard` (refuses any server
+  replace/delete) and `make destroy` runs `capacity` first; `FORCE=1`
+  overrides both, deliberately. Pending program changes that replace
+  servers (the cloud-init NIC fix) wait for a rebuild we choose, with
+  stock checked first. `make admit` exists so IP changes never touch
+  servers.
 - **The swap lands MID-COURSE, on purpose.** Whatever finance data and
   Hasura metadata exist by Sept 4 must cross the provider boundary the
   way NetBox crossed the OS boundary in Phase 8: git + WAL archive,

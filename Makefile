@@ -28,7 +28,13 @@ SSH_KEY          := ~/.ssh/hetzner_k8s
 # storageclass) — it lands after the Phase 9.0 closed-book diff. Until
 # then `none` = local-path only.
 PLATFORM_PROVIDER := none
-UP_PREFLIGHT     := capacity check-ip
+# STOCK RULE (2026-09-09): CX servers are scarce — sold out EU-wide Sept 6,
+# and a replace is a destroy-then-create whose second half can fail for
+# stock. So: never replace or destroy Hetzner servers without confirmed
+# stock. `guard` refuses an `up` that would replace/delete a server;
+# `capacity` gates `destroy` too. FORCE=1 overrides both, deliberately.
+UP_PREFLIGHT     := capacity guard check-ip
+DESTROY_PREFLIGHT := capacity
 # the one resource `admit` is allowed to touch
 FIREWALL_URN     := urn:pulumi:dev::trk-k8s-hetzner::hcloud:index/firewall:Firewall::k8s-fw
 else ifeq ($(PROVIDER),aws)
@@ -40,6 +46,7 @@ PLATFORM_PROVIDER := aws
 # StackReference, so it must exist before `make up PROVIDER=aws`.
 PERSIST_DIR      := infra/aws-persistent
 UP_PREFLIGHT     := check-ip
+DESTROY_PREFLIGHT :=
 FIREWALL_URN     := urn:pulumi:dev::trk-k8s-aws::aws:ec2/securityGroup:SecurityGroup::k8s-sg
 else
 $(error unknown PROVIDER '$(PROVIDER)' — use hetzner or aws)
@@ -59,7 +66,7 @@ PULUMI         := AWS_PROFILE=$(AWS_PROFILE) PULUMI_CONFIG_PASSPHRASE_FILE=$(HOM
 node_ip   = $(shell cd $(INFRA_DIR) && $(PULUMI) stack output nodes | jq -r '.[] | select(.name=="$(1)").publicIp')
 node_user = $(shell cd $(INFRA_DIR) && $(PULUMI) stack output nodes | jq -r '.[] | select(.name=="$(1)").sshUser')
 
-.PHONY: help login preview up destroy nodes outputs check-ip add-ip admit capacity ssh-cp ssh-worker-1 ssh-worker-2 kubeconfig bootstrap platform rebuild persist-up persist-outputs pg-backup-secret
+.PHONY: help login preview up destroy nodes outputs check-ip add-ip admit capacity guard ssh-cp ssh-worker-1 ssh-worker-2 kubeconfig bootstrap platform rebuild persist-up persist-outputs pg-backup-secret
 
 help: ## list available targets
 	@grep -E '^[a-z0-9-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -73,7 +80,7 @@ preview: ## show what pulumi would change
 up: $(UP_PREFLIGHT) ## create/update the cluster machines (Hetzner: fails fast if cx23/cx33 are sold out)
 	cd $(INFRA_DIR) && $(PULUMI) up --yes
 
-destroy: ## tear down the cluster machines (state + WAL archives live in S3 and survive)
+destroy: $(DESTROY_PREFLIGHT) ## tear down the cluster machines (state + WAL archives survive; Hetzner: refuses without stock unless FORCE=1)
 	cd $(INFRA_DIR) && $(PULUMI) destroy --yes
 
 nodes: ## print the node inventory (the provider-agnostic contract)
@@ -118,7 +125,8 @@ add-ip: ## admit another address ahead of time: make add-ip IP=203.0.113.7
 # — other lines cost 4x or are arm64 — so when Nuremberg can't sell
 # them, `up` fails here, fast, before check-ip touches anything, and the
 # answer is `make up PROVIDER=aws`.
-capacity: ## Hetzner: can Nuremberg sell cx23 + cx33 right now? (auto-runs before `up`; fails if not)
+capacity: ## Hetzner: can Nuremberg sell cx23 + cx33 right now? (auto-runs before `up`/`destroy`; fails if not; FORCE=1 skips)
+	@test -z "$(FORCE)" || { echo "capacity: FORCE=1 — skipping the stock check"; exit 0; }
 	@avail="$$(hcloud datacenter describe nbg1-dc3 -o json 2>/dev/null | jq -c '.server_types.available')"; \
 	test -n "$$avail" || { echo "capacity: could not query Hetzner (hcloud context / token?)"; exit 1; }; \
 	types="$$(hcloud server-type list -o json)"; missing=""; \
@@ -129,6 +137,15 @@ capacity: ## Hetzner: can Nuremberg sell cx23 + cx33 right now? (auto-runs befor
 	if [ -n "$$missing" ]; then \
 		echo "capacity: Hetzner nbg1 cannot sell$$missing right now — use: make up PROVIDER=aws"; exit 1; \
 	else echo "capacity: nbg1 has cx23 + cx33"; fi
+
+guard: ## Hetzner: refuse an `up` that would replace or delete a server (auto-runs before `up`; FORCE=1 skips)
+	@test -z "$(FORCE)" || { echo "guard: FORCE=1 — server replacement allowed"; exit 0; }
+	@cd $(INFRA_DIR); n="$$($(PULUMI) preview --json 2>/dev/null | jq -r '[.steps[]? | select(.op=="replace" or .op=="delete" or .op=="create-replacement") | select(.urn|test(":Server::"))] | length')"; \
+	if [ -z "$$n" ]; then echo "guard: could not compute a preview (login? state?)"; exit 1; fi; \
+	if [ "$$n" != "0" ]; then \
+		echo "guard: this up would REPLACE or DELETE server(s) — a replace is destroy-then-create, and the create can fail for stock."; \
+		echo "guard: if this is a deliberate rebuild: make capacity && make up FORCE=1"; exit 1; \
+	else echo "guard: no server replacement in this update"; fi
 
 bootstrap: ## kubeadm + cilium on the provisioned machines (runbooks 02+03, scripted)
 	@cd $(INFRA_DIR) && $(PULUMI) stack output nodes > /tmp/trk-inventory.json
