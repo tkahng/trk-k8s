@@ -167,3 +167,13 @@ reclaimPolicy: Delete
 volumeBindingMode: WaitForFirstConsumer
 allowVolumeExpansion: true
 ```
+
+```bash
+kubectl apply -f phase9/9.0/storageclass-hcloud.yaml
+kubectl get sc # hcloud-csi (default)
+```
+
+```bash
+kubectl apply -f phase9/9.0/pv-claim.yaml -f phase9/9.0/pv-pod.yaml
+kubectl get pvc,pod
+```
