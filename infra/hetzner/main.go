@@ -40,7 +40,7 @@ func main() {
 		}
 		sshPublicKey := cfg.Require("sshPublicKey")
 
-		location := "fsn1" // Falkenstein — CX series is EU-only
+		location := "nbg1" // Nuremberg — CX series is EU-only; fsn1 had cx23 but no cx33 on 2026-09-08
 		image := "ubuntu-24.04"
 		// Per-role sizing (drill 2, journal 2026-08-18): a 4 GB worker running
 		// a CNPG instance plus the platform stack has one boot spike of
@@ -148,6 +148,12 @@ func main() {
 		inventory := pulumi.Array{}
 
 		for _, n := range nodes {
+			// The private network is attached HERE, at creation, not as a
+			// separate ServerNetwork resource afterwards: a NIC hot-plugged
+			// after first boot arrives with no netplan config (2026-09-04 —
+			// kubeadm init hung waiting for an address that wasn't on the box).
+			// Attached at creation, cloud-init configures it on first boot.
+			// See docs/notes/provider-network-models.md.
 			server, err := hcloud.NewServer(ctx, n.name, &hcloud.ServerArgs{
 				Name:             pulumi.String(n.name),
 				ServerType:       pulumi.String(serverTypes[n.role]),
@@ -156,21 +162,16 @@ func main() {
 				SshKeys:          pulumi.StringArray{sshKey.Name},
 				FirewallIds:      pulumi.IntArray{intID(firewall.ID())},
 				PlacementGroupId: intID(placementGroup.ID()),
+				Networks: hcloud.ServerNetworkTypeArray{
+					&hcloud.ServerNetworkTypeArgs{
+						NetworkId: intID(network.ID()),
+						Ip:        pulumi.String(n.privateIP),
+					},
+				},
 				Labels: pulumi.StringMap{
 					"cluster": pulumi.String("k8s"),
 					"role":    pulumi.String(n.role),
 				},
-			})
-			if err != nil {
-				return err
-			}
-
-			// Attach to the private network with a fixed IP so the kubeadm
-			// runbook can use stable addresses.
-			_, err = hcloud.NewServerNetwork(ctx, n.name+"-net", &hcloud.ServerNetworkArgs{
-				ServerId:  intID(server.ID()),
-				NetworkId: intID(network.ID()),
-				Ip:        pulumi.String(n.privateIP),
 			}, pulumi.DependsOn([]pulumi.Resource{subnet}))
 			if err != nil {
 				return err

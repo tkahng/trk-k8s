@@ -105,11 +105,11 @@ add-ip: ## admit another address ahead of time: make add-ip IP=203.0.113.7
 
 # Hetzner sells the CX line inconsistently (no capacity July; sold out
 # EU-wide 2026-09-06). The server types are fixed at cx23/cx33 on purpose
-# — other lines cost 4x or are arm64 — so when Falkenstein can't sell
+# — other lines cost 4x or are arm64 — so when Nuremberg can't sell
 # them, `up` fails here, fast, before check-ip touches anything, and the
 # answer is `make up PROVIDER=aws`.
-capacity: ## Hetzner: can Falkenstein sell cx23 + cx33 right now? (auto-runs before `up`; fails if not)
-	@avail="$$(hcloud datacenter describe fsn1-dc14 -o json 2>/dev/null | jq -c '.server_types.available')"; \
+capacity: ## Hetzner: can Nuremberg sell cx23 + cx33 right now? (auto-runs before `up`; fails if not)
+	@avail="$$(hcloud datacenter describe nbg1-dc3 -o json 2>/dev/null | jq -c '.server_types.available')"; \
 	test -n "$$avail" || { echo "capacity: could not query Hetzner (hcloud context / token?)"; exit 1; }; \
 	types="$$(hcloud server-type list -o json)"; missing=""; \
 	for t in cx23 cx33; do \
@@ -117,8 +117,8 @@ capacity: ## Hetzner: can Falkenstein sell cx23 + cx33 right now? (auto-runs bef
 		echo "$$avail" | jq -e "index($$id)" >/dev/null || missing="$$missing $$t"; \
 	done; \
 	if [ -n "$$missing" ]; then \
-		echo "capacity: Hetzner fsn1 cannot sell$$missing right now — use: make up PROVIDER=aws"; exit 1; \
-	else echo "capacity: fsn1 has cx23 + cx33"; fi
+		echo "capacity: Hetzner nbg1 cannot sell$$missing right now — use: make up PROVIDER=aws"; exit 1; \
+	else echo "capacity: nbg1 has cx23 + cx33"; fi
 
 bootstrap: ## kubeadm + cilium on the provisioned machines (runbooks 02+03, scripted)
 	@cd $(INFRA_DIR) && $(PULUMI) stack output nodes > /tmp/trk-inventory.json
