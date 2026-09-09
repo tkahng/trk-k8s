@@ -135,19 +135,34 @@ helm upgrade azuredisk-csi-driver azuredisk-csi-driver/azuredisk-csi-driver --na
 kubectl get pods -n kube-system | grep csi
 ```
 
-Storage Class
+# install csi — hetzner (2026-09-08)
+
+Hetzner has no instance identity, so the driver needs the project API
+token as a Secret — the first cloud credential that lives inside the
+cluster. The chart looks for Secret `hcloud`, key `token`, in its namespace.
+
+```bash
+kubectl -n kube-system create secret generic hcloud --from-file=token=$HOME/.config/trk-k8s/hcloud-token
+
+helm repo add hcloud https://charts.hetzner.cloud && helm repo update
+
+# storageClasses=[] : don't let the chart create its own default class — we write ours
+helm install hcloud-csi hcloud/hcloud-csi --namespace kube-system --set-json 'storageClasses=[]'
+
+kubectl -n kube-system get pods | grep hcloud-csi   # 1 controller + 1 node pod per node, Running
+```
+
+# Storage Class
 
 ```yaml
 ---
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
-  name: managed-csi
+  name: hcloud-csi
   annotations:
     storageclass.kubernetes.io/is-default-class: "true"
-provisioner: disk.csi.azure.com
-parameters:
-  skuName: StandardSSD_LRS # available values: StandardSSD_LRS, StandardSSD_ZRS, Premium_LRS, Premium_ZRS, etc.
+provisioner: csi.hetzner.cloud
 reclaimPolicy: Delete
 volumeBindingMode: WaitForFirstConsumer
 allowVolumeExpansion: true
