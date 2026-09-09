@@ -112,9 +112,44 @@ func main() {
 			return err
 		}
 
+		// Off-AWS clusters (Hetzner, Phase 9) have no instance role to ride,
+		// so barman needs static keys. Same policy, different principal: an
+		// IAM user that can do nothing but read/write this bucket. The
+		// secret key is a secret output — read with `pulumi stack output
+		// --show-secrets` and hand it to the cluster as a Secret, never
+		// commit it. Rotating = delete the key resource, `up`, re-create the
+		// cluster Secret.
+		backupUser, err := iam.NewUser(ctx, "pg-backups-user", &iam.UserArgs{
+			Name: pulumi.String("trk-k8s-pg-backups"),
+			Tags: pulumi.StringMap{
+				"cluster":   pulumi.String("trk-k8s"),
+				"lifecycle": pulumi.String("persistent"),
+				"purpose":   pulumi.String("barman-cloud from off-AWS clusters"),
+			},
+		})
+		if err != nil {
+			return err
+		}
+		_, err = iam.NewUserPolicyAttachment(ctx, "pg-backups-user-access", &iam.UserPolicyAttachmentArgs{
+			User:      backupUser.Name,
+			PolicyArn: policy.Arn,
+		})
+		if err != nil {
+			return err
+		}
+		backupKey, err := iam.NewAccessKey(ctx, "pg-backups-key", &iam.AccessKeyArgs{
+			User: backupUser.Name,
+		})
+		if err != nil {
+			return err
+		}
+
 		ctx.Export("pg-backup-bucket", backups.Bucket)
-		// The one value the ephemeral stack reads via StackReference.
+		// The one value the ephemeral AWS stack reads via StackReference.
 		ctx.Export("pg-backup-policy-arn", policy.Arn)
+		// For off-AWS clusters: static credentials scoped to the bucket.
+		ctx.Export("pg-backup-access-key-id", backupKey.ID())
+		ctx.Export("pg-backup-secret-access-key", pulumi.ToSecret(backupKey.Secret))
 		return nil
 	})
 }
