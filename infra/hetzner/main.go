@@ -18,6 +18,26 @@ func intID(id pulumi.IDOutput) pulumi.IntOutput {
 	}).(pulumi.IntOutput)
 }
 
+// cloud-init: configure the Hetzner private-network NIC by DHCP no matter
+// when it is attached. Hetzner's DHCP hands out the fixed IP and the route
+// to the network range. `enp*` matches the virtio NIC the network arrives
+// as (enp7s0); the public NIC is `eth0` and untouched.
+const privateNICCloudInit = `#cloud-config
+write_files:
+  - path: /etc/netplan/60-private-net.yaml
+    permissions: "0600"
+    content: |
+      network:
+        version: 2
+        ethernets:
+          private:
+            match:
+              name: "enp*"
+            dhcp4: true
+runcmd:
+  - netplan apply
+`
+
 type node struct {
 	name      string
 	role      string
@@ -148,12 +168,16 @@ func main() {
 		inventory := pulumi.Array{}
 
 		for _, n := range nodes {
-			// The private network is attached HERE, at creation, not as a
-			// separate ServerNetwork resource afterwards: a NIC hot-plugged
-			// after first boot arrives with no netplan config (2026-09-04 —
-			// kubeadm init hung waiting for an address that wasn't on the box).
-			// Attached at creation, cloud-init configures it on first boot.
-			// See docs/notes/provider-network-models.md.
+			// The private network is attached at creation rather than as a
+			// separate ServerNetwork resource — but that alone is a RACE:
+			// Hetzner still attaches asynchronously, and on 2026-09-08 two of
+			// three nodes had the NIC configured at first boot and one did
+			// not (2026-09-04: zero of three, attached post-boot). So the OS
+			// is told via cloud-init to DHCP any enp* interface whenever it
+			// appears; systemd-networkd applies a match rule to hot-plugged
+			// NICs too. See docs/notes/provider-network-models.md.
+			// NOTE: changing user_data forces server REPLACEMENT — only run
+			// `make up` with a changed template as part of a rebuild.
 			server, err := hcloud.NewServer(ctx, n.name, &hcloud.ServerArgs{
 				Name:             pulumi.String(n.name),
 				ServerType:       pulumi.String(serverTypes[n.role]),
@@ -162,6 +186,7 @@ func main() {
 				SshKeys:          pulumi.StringArray{sshKey.Name},
 				FirewallIds:      pulumi.IntArray{intID(firewall.ID())},
 				PlacementGroupId: intID(placementGroup.ID()),
+				UserData:         pulumi.String(privateNICCloudInit),
 				Networks: hcloud.ServerNetworkTypeArray{
 					&hcloud.ServerNetworkTypeArgs{
 						NetworkId: intID(network.ID()),
