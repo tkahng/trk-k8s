@@ -1,0 +1,15 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: pg-lab
+  namespace: postgres-cnpg
+spec:
+  instances: 1
+  storage:
+    size: 10Gi
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: pg-store
+        serverName: pg-hetzner-20260909

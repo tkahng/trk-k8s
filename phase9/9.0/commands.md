@@ -177,3 +177,117 @@ kubectl get sc # hcloud-csi (default)
 kubectl apply -f phase9/9.0/pv-claim.yaml -f phase9/9.0/pv-pod.yaml
 kubectl get pvc,pod
 ```
+
+# cert-manager
+
+What you do with it here: just install it and confirm it's running. No Issuer, no Cloudflare token, no Let's Encrypt — that's Phase 9.2's business when Hasura gets a hostname.
+
+```bash
+helm repo add jetstack https://charts.jetstack.io && helm repo update
+helm install cert-manager jetstack/cert-manager --namespace cert-manager --create-namespace --set crds.enabled=true
+kubectl -n cert-manager rollout status deploy/cert-manager-webhook
+```
+
+crds.enabled=true matters: it installs the Certificate/Issuer types themselves, which is what the plugin manifest needs to even be applied — without them, step 3 fails with "no matches for kind Certificate.
+
+# the CNPG operator
+
+```bash
+helm repo add cnpg https://cloudnative-pg.github.io/charts && helm repo update
+helm install cnpg cnpg/cloudnative-pg --namespace cnpg-system --create-namespace
+kubectl -n cnpg-system rollout status deploy/cnpg-cloudnative-pg
+```
+
+output:
+
+```bash
+CloudNativePG operator should be installed in namespace "cnpg-system".
+You can now create a PostgreSQL cluster with 3 nodes as follows:
+
+cat <<EOF | kubectl apply -f -
+# Example of PostgreSQL cluster
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: cluster-example
+
+spec:
+  instances: 3
+  storage:
+    size: 1Gi
+EOF
+
+kubectl get -A cluster
+Waiting for deployment "cnpg-cloudnative-pg" rollout to finish: 0 of 1 updated replicas are available...
+deployment "cnpg-cloudnative-pg" successfully rolled out
+```
+
+# barman plugin
+
+Then step 3 — the barman plugin, into the same namespace:
+
+```bash
+kubectl apply --server-side -f https://github.com/cloudnative-pg/plugin-barman-cloud/releases/download/v0.14.0/manifest.yaml
+kubectl -n cnpg-system rollout status deploy/barman-cloud
+```
+
+# secrets
+
+make pg-backup-secret
+kubectl -n postgres-cnpg get secret aws-creds
+
+# Step 5 — the two manifests
+
+objectstore.yaml — the S3 destination, with the credential you just created. Save and apply this one first:
+
+```yaml
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: pg-store
+  namespace: postgres-cnpg
+spec:
+  configuration:
+    destinationPath: s3://trk-k8s-pg-backups/
+    s3Credentials:
+      accessKeyId:
+        name: aws-creds
+        key: ACCESS_KEY_ID
+      secretAccessKey:
+        name: aws-creds
+        key: ACCESS_SECRET_KEY
+    wal:
+      compression: gzip
+    data:
+      compression: gzip
+  retentionPolicy: "7d"
+```
+
+```bash
+kubectl apply -f phase9/9.0/objectstore.yaml
+```
+
+cluster.yaml
+
+```yaml
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: pg-lab
+  namespace: postgres-cnpg
+spec:
+  instances: 1
+  storage:
+    size: 10Gi
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: pg-store
+        serverName: pg-hetzner-20260909
+```
+
+```bash
+kubectl apply -f phase9/9.0/cluster.yaml
+kubectl -n postgres-cnpg get cluster -w
+```
