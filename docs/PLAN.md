@@ -336,7 +336,10 @@ Landmines recorded up front, to be hit deliberately:
   capstone must recover.
 
 Sessions (each closed-book first, diff-and-journal after):
-1. **9.0 — platform from memory (Azure, now).** Fresh kubeadm cluster +
+1. ✅ **9.0 — platform from memory** (2026-09-09, third attempt: Azure
+   09-01→03, Hetzner 09-04, Hetzner 09-08→09 — journals 09-01 and
+   09-04). `ContinuousArchiving=True` from Nuremberg to S3. Diff still
+   owed. Original brief: Fresh kubeadm cluster +
    azure-disk CSI + CNPG operator + barman plugin, no peeking, timeboxed
    ~3h. The diff is the deliverable. (The Hetzner first-run rep moves to
    the Sept 4 swap: hcloud CSI, `root` sshUser, and wherever the
