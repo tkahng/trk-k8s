@@ -1,0 +1,20 @@
+# Hetzner Cloud Volumes as the DEFAULT StorageClass — written by hand in
+# Phase 9.0 (phase9/9.0/storageclass.yaml, 2026-09-08), promoted here as
+# the platform's Hetzner storage addon. Applied by platform.sh's hetzner
+# branch (after the hcloud-csi driver, which must be installed with
+# storageClasses=[] so it does not create a second default).
+#
+# Versus the Azure class: provisioner changed, the parameters block is
+# gone (Hetzner sells one volume type). Policy is identical — default,
+# bind on first consumer (volume lands in the pod's zone), delete on
+# release, expandable. Minimum volume is 10Gi; smaller claims round up.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: hcloud-csi
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: csi.hetzner.cloud
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
