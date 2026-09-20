@@ -172,10 +172,11 @@ pg-backup-secret: ## create Secret aws-creds (ACCESS_KEY_ID / ACCESS_SECRET_KEY)
 	id="$$($(PULUMI) stack output pg-backup-access-key-id)"; \
 	key="$$($(PULUMI) stack output pg-backup-secret-access-key --show-secrets)"; \
 	test -n "$$id" -a -n "$$key" || { echo "pg-backup-secret: no key in the persistent stack — run: make persist-up PROVIDER=aws"; exit 1; }; \
-	kubectl create ns "$$ns" --dry-run=client -o yaml | kubectl apply -f - > /dev/null; \
+	kubectl get --raw /readyz > /dev/null 2>&1 || { echo "pg-backup-secret: no cluster reachable — export KUBECONFIG first"; exit 1; }; \
+	kubectl create ns "$$ns" --dry-run=client -o yaml | kubectl apply -f - > /dev/null && \
 	kubectl -n "$$ns" create secret generic aws-creds \
 		--from-literal=ACCESS_KEY_ID="$$id" --from-literal=ACCESS_SECRET_KEY="$$key" \
-		--dry-run=client -o yaml | kubectl apply -f - > /dev/null; \
+		--dry-run=client -o yaml | kubectl apply -f - > /dev/null && \
 	echo "pg-backup-secret: $$ns/aws-creds written (key id $$id)"
 
 rebuild: ## the full drill: destroy -> up -> bootstrap -> platform
