@@ -1,0 +1,21 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: ledger # no namespace: the overlay stamps it
+spec:
+  instances: 1 # 9.3 makes this 3
+
+  storage:
+    size: 10Gi # no storageClass: takes the default
+
+  bootstrap: # NEW vs pg-lab — how the cluster is born
+    initdb:
+      database: ledger # the application database
+      owner: ledger # its owning role; CNPG generates the password into Secret <name>-app
+
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: pg-store
+        serverName: ledger-20260919 # this cluster's folder in the bucket

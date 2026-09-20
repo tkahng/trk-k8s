@@ -1,0 +1,19 @@
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: pg-store # the name cluster.yaml's barmanObjectName points at
+spec:
+  configuration:
+    destinationPath: s3://trk-k8s-pg-backups/
+    s3Credentials:
+      accessKeyId:
+        name: aws-creds # the Secret make pg-backup-secret creates
+        key: ACCESS_KEY_ID
+      secretAccessKey:
+        name: aws-creds
+        key: ACCESS_SECRET_KEY
+    wal:
+      compression: gzip
+    data:
+      compression: gzip
+  retentionPolicy: "7d"
